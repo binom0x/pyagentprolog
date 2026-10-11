@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyagentprolog"
+version = "5.9.1"
+description = "A Prolog engine in Python with agents, tracing, and semantic unification."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Andrey Vorfolomeev", email = "binom0x@proton.me"}
+]
+keywords = ["prolog", "logic-programming", "ai", "agents", "expert-system"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# Обязательные зависимости (ядро)
+dependencies = [
+    "numpy>=1.26.4,<2.0",
+]
+
+# Опциональные зависимости (устанавливаются через pyagentprolog[extra])
+[project.optional-dependencies]
+numba = ["numba>=0.67.0"]
+langchain = ["langchain-core>=1.4.8,<2.0"]
+embeddings = [
+    "sentence-transformers>=6.0.1,<7.0",
+    "langchain-ollama>=1.0.1,<2.0",
+]
+gradio = ["gradio>=6.28.0,<7.0"]
+expert = ["pymorphy3>=2.0.6,<3.0"]
+all = [
+    "numba>=0.67.0",
+    "langchain-core>=1.4.8,<2.0",
+    "sentence-transformers>=6.0.1,<7.0",
+    "langchain-ollama>=1.0.1,<2.0",
+    "gradio>=6.28.0,<7.0",
+    "pymorphy3>=2.0.6,<3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pyagentprolog"
+Repository = "https://github.com/yourusername/pyagentprolog.git"
+
+# Где искать пакеты
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["prolog*"]
+
+# Включать не-Python файлы (если есть, например JSON-глоссарии)
+#[tool.setuptools.package-data]
+#prolog = ["glossary/*.json"]

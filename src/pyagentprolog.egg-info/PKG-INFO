@@ -1,0 +1,166 @@
+Metadata-Version: 2.4
+Name: pyagentprolog
+Version: 5.9.1
+Summary: A Prolog engine in Python with agents, tracing, and semantic unification.
+Author-email: Andrey Vorfolomeev <binom0x@proton.me>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/yourusername/pyagentprolog
+Project-URL: Repository, https://github.com/yourusername/pyagentprolog.git
+Keywords: prolog,logic-programming,ai,agents,expert-system
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy<2.0,>=1.26.4
+Provides-Extra: numba
+Requires-Dist: numba>=0.67.0; extra == "numba"
+Provides-Extra: langchain
+Requires-Dist: langchain-core<2.0,>=1.4.8; extra == "langchain"
+Provides-Extra: embeddings
+Requires-Dist: sentence-transformers<7.0,>=6.0.1; extra == "embeddings"
+Requires-Dist: langchain-ollama<2.0,>=1.0.1; extra == "embeddings"
+Provides-Extra: gradio
+Requires-Dist: gradio<7.0,>=6.28.0; extra == "gradio"
+Provides-Extra: expert
+Requires-Dist: pymorphy3<3.0,>=2.0.6; extra == "expert"
+Provides-Extra: all
+Requires-Dist: numba>=0.67.0; extra == "all"
+Requires-Dist: langchain-core<2.0,>=1.4.8; extra == "all"
+Requires-Dist: sentence-transformers<7.0,>=6.0.1; extra == "all"
+Requires-Dist: langchain-ollama<2.0,>=1.0.1; extra == "all"
+Requires-Dist: gradio<7.0,>=6.28.0; extra == "all"
+Requires-Dist: pymorphy3<3.0,>=2.0.6; extra == "all"
+Dynamic: license-file
+
+# PyAgentProlog
+
+Prolog-движок на Python с трассировкой доказательств, агентами на Python-действиях,
+экспертной системой и семантической унификацией на эмбеддингах.
+
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Возможности
+
+- **Ядро Prolog**: парсер, итеративный решатель с TCO (tail-call optimization),
+  отсечение (`!`), `if-then-else`, индексация правил по первому аргументу.
+- **Трассировка доказательств** — дерево вывода с унификациями и правилами.
+- **Numba-ускорение арифметики** — нерекурсивная стек-машина, работает на ARM/Raspberry Pi.
+- **Агенты** — Python-функции как встроенные предикаты (`@simple_action`,
+  `@effector_action`, `@generator_action`).
+- **Экспертная система** — диалоговый режим, извлечение условий из естественного языка
+  через `pymorphy3`, разрешение противоречий, глоссарий.
+- **Семантическая унификация** — сопоставление атомов через эмбеддинги
+  (Ollama или sentence-transformers).
+- **Интеграция с LangChain** — `PrologChain` как `Runnable` в LCEL-цепочках.
+- **Gradio-сессии** — для интерактивных UI.
+
+## Установка
+
+### Базовая (только ядро)
+
+```bash
+pip install pyagentprolog
+```
+
+### С дополнительными возможностями
+
+```bash
+# Numba-ускорение арифметики
+pip install pyagentprolog[numba]
+
+# Семантическая унификация
+pip install pyagentprolog[embeddings]
+
+# LangChain
+pip install pyagentprolog[langchain]
+
+# Экспертная система (pymorphy3)
+pip install pyagentprolog[expert]
+
+# Всё сразу
+pip install pyagentprolog[all]
+```
+
+### Установка из архива в произвольную папку
+
+```bash
+python -m pip install --target /path/to/folder pyagentprolog-5.9.0.tar.gz
+export PYTHONPATH="/path/to/folder:$PYTHONPATH"
+```
+
+## Быстрый старт
+
+### Простой запрос
+
+```python
+from prolog import Solver
+
+program = """
+родитель(иван, алексей).
+родитель(алексей, петр).
+
+дедушка(Д, В) :-
+    родитель(Д, Р),
+    родитель(Р, В).
+"""
+
+solver = Solver(program)
+solutions = solver.find_solutions("дедушка(иван, X).")
+print(solutions)  # [{'X': 'петр'}]
+```
+
+### Трассировка доказательства
+
+```python
+solutions, explanation = solver.find_solutions("дедушка(иван, X).",
+                                                with_explanation=True)
+print(solver.get_explanation())
+```
+
+### Агент с Python-действиями
+
+```python
+from prolog import Agent, simple_action
+
+@simple_action('add', 3, output_arg=2)
+def add(a, b, context=None):
+    return a + b
+
+agent = Agent(program="run(X) :- add(2, 3, X).")
+agent.register_action(add)
+print(agent.query_one("run(X)."))  # {'X': 5}
+```
+
+### Экспертная система
+
+Требует pyagentprolog[expert]
+
+```python
+from prolog import Expert
+
+expert = Expert(domain_file="knowledge.pl", use_pymorphy=True)
+answer = expert.ask("я хочу учиться программированию")
+print(answer)
+```
+
+## Требования
+
+- Python 3.9+
+- Обязательно: `numpy`
+- Опционально: `numba`, `langchain-core`, `sentence-transformers`,
+  `langchain-ollama`, `gradio`, `pymorphy3`
+
+## Лицензия
+
+MIT — см. файл [LICENSE](LICENSE).
+
+## Автор
+
+Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)

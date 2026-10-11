@@ -1,0 +1,24 @@
+pyagentprolog/
+├── pyproject.toml          # главный конфиг (PEP 621)
+├── README.md
+├── LICENSE
+├── MANIFEST.in             # доп. файлы для sdist
+├── src/
+│   └── prolog/             # имя пакета (то, что в import prolog)
+│       ├── __init__.py
+│       ├── terms.py
+│       ├── bridge.py
+│       ├── parser.py
+│       ├── tracer.py
+│       ├── predicates.py
+│       ├── interpreter.py
+│       ├── solver.py
+│       ├── actions.py
+│       ├── agent.py
+│       ├── arith_numba.py
+│       ├── embedding_unify.py
+│       ├── prologchain.py
+│       ├── proagent_gradio.py
+│       └── expert.py
+└── tests/
+    └── test_basic.py
