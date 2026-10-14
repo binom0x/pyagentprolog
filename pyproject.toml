@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyagentprolog"
-version = "5.9.1"
+version = "1.0.1"
 description = "A Prolog engine in Python with agents, tracing, and semantic unification."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,8 +49,8 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/pyagentprolog"
-Repository = "https://github.com/yourusername/pyagentprolog.git"
+Homepage = "https://github.com/binom0x/pyagentprolog"
+Repository = "https://github.com/binom0x/pyagentprolog.git"
 
 # Где искать пакеты
 [tool.setuptools.packages.find]

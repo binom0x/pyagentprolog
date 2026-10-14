@@ -925,11 +925,12 @@ class Database:
                 if term not in var_map:
                     var_map[term] = Variable(f"{term.name}_{nonce}")
                 return var_map[term]
-            elif isinstance(term, Term):
+            if isinstance(term, Number):          # <-- ДО Term
+                return term                        # Number неизменяем
+            if isinstance(term, Term):
                 new_args = [rename(arg) for arg in term.arguments]
                 return Term(term.functor, new_args)
-            else:
-                return term
+            return term
 
         new_head = rename(rule.head)
         new_body = rename(rule.body)
