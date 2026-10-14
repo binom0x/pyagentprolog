@@ -52,13 +52,6 @@ pip install pyagentprolog[expert]
 pip install pyagentprolog[all]
 ```
 
-### Установка из архива в произвольную папку
-
-```bash
-python -m pip install --target /path/to/folder pyagentprolog-5.9.0.tar.gz
-export PYTHONPATH="/path/to/folder:$PYTHONPATH"
-```
-
 ## Быстрый старт
 
 ### Простой запрос
