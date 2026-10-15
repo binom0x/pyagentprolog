@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Тестовый агент для демонстрации фреймворка PyAgentProlog с использованием
-упрощённых декораторов @simple_action, @effector_action и @generator_action,
-а также стриминга результатов.
+Test agent demonstrating the PyAgentProlog framework using
+the simplified decorators @simple_action, @effector_action and
+@generator_action, as well as streaming of results.
 """
 
 import sys
@@ -14,14 +14,14 @@ from prolog.agent import Agent, simple_action, effector_action, generator_action
 
 
 # -------------------------------------------------------------------
-# Определение действий агента
+# Defining agent actions
 # -------------------------------------------------------------------
 
 @simple_action('read_input', 1, output_arg=0)
 def read_input(context):
     """
     read_input(-Text)
-    Считывает строку из стандартного ввода и возвращает её.
+    Reads a line from standard input and returns it.
     """
     line = input(">> ").strip()
     return line
@@ -31,47 +31,47 @@ def read_input(context):
 def print_message(msg, context):
     """
     print_message(+Message)
-    Выводит сообщение на экран.
+    Prints a message to the screen.
     """
-    print(f"[Агент]: {msg}")
+    print(f"[Agent]: {msg}")
 
 
 @simple_action('llm_echo', 2, output_arg=1)
 def llm_echo(prompt, context):
     """
     llm_echo(+Prompt, -Response)
-    Имитация LLM: возвращает 'Эхо: ' + входной текст.
+    LLM simulation: returns 'Echo: ' + the input text.
     """
-    return f"Эхо: {prompt}"
+    return f"Echo: {prompt}"
 
 
 # -------------------------------------------------------------------
-# Действие-генератор для демонстрации стриминга
+# Generator action to demonstrate streaming
 # -------------------------------------------------------------------
-@generator_action('counter', 2, output_arg=1, description="Генерирует числа от 1 до N")
+@generator_action('counter', 2, output_arg=1, description="Generates numbers from 1 to N")
 def counter(limit, context):
     """
     counter(+Limit, -Value)
-    Генерирует все целые числа от 1 до Limit включительно.
+    Generates all integers from 1 to Limit inclusive.
     """
     for i in range(1, limit + 1):
         yield i
 
 
 # -------------------------------------------------------------------
-# Prolog-программа агента (без изменений)
+# Prolog agent program (unchanged)
 # -------------------------------------------------------------------
 AGENT_PROGRAM = """
-% Динамические предикаты состояния
+% Dynamic state predicates
 :- dynamic state/2.
 :- dynamic memory/1.
 
-% Инициализация агента
+% Agent initialization
 init :-
     set_state(state(phase, init)),
     set_state(memory([])).
 
-% Основной шаг цикла
+% Main loop step
 step :-
     state(phase, Phase),
     handle_phase(Phase, NextPhase),
@@ -81,110 +81,110 @@ step :-
 continue(final) :- !.
 continue(_) :- step.
 
-% Обработка фазы init
+% Handling the init phase
 handle_phase(init, working) :-
-    print_message('Агент инициализирован. Введите действие:'),
+    print_message('Agent initialized. Enter an action:'),
     read_input(Action),
     set_state(memory(Action)),
-    print_message('Действие запомнено.').
+    print_message('Action remembered.').
 
-% Обработка фазы working
+% Handling the working phase
 handle_phase(working, final) :-
     memory(LastAction),
-    print_message('Последнее действие:'),
+    print_message('Last action:'),
     print_message(LastAction),
-    print_message('Обращаюсь к LLM для анализа...'),
+    print_message('Contacting the LLM for analysis...'),
     llm_echo(LastAction, Analysis),
-    print_message('LLM ответила:'),
+    print_message('LLM responded:'),
     print_message(Analysis),
-    print_message('Завершаю работу.').
+    print_message('Finishing up.').
 
 handle_phase(final, final) :-
-    print_message('Агент уже завершил работу.').
+    print_message('The agent has already finished.').
 
-% Точка входа
+% Entry point
 run :- init, step.
 """
 
 
 # -------------------------------------------------------------------
-# Тестирование агента
+# Testing the agent
 # -------------------------------------------------------------------
 def main():
     print("=" * 60)
-    print("ТЕСТОВЫЙ АГЕНТ PROAGENT (СТРИМИНГ)")
+    print("TEST AGENT PROAGENT (STREAMING)")
     print("=" * 60)
 
     context = {
         'llm': None,
-        'user_name': 'Тестер'
+        'user_name': 'Tester'
     }
 
     agent = Agent(AGENT_PROGRAM, context=context)
     agent.register_action_module(sys.modules[__name__])
 
-    print("\nЗарегистрированные действия:")
+    print("\nRegistered actions:")
     for act in agent.list_actions():
         print(f"  - {act['name']}/{act['arity']}: {act['description']} ({act['type']})")
     print()
 
     # -----------------------------------------------------------------
-    # Демонстрация стриминга на примере генератора counter/2
+    # Demonstrating streaming with the counter/2 generator
     # -----------------------------------------------------------------
-    print("Демонстрация стриминга: запрос counter(5, X)")
+    print("Streaming demo: query counter(5, X)")
     stream = agent.stream("counter(5, X).")
     for i, solution in enumerate(stream, 1):
         if isinstance(solution, dict) and 'error' in solution:
-            print(f"  Ошибка: {solution['error']}")
+            print(f"  Error: {solution['error']}")
             break
         elif isinstance(solution, dict):
-            print(f"  Решение {i}: X = {solution.get('X')}")
+            print(f"  Solution {i}: X = {solution.get('X')}")
         else:
-            print(f"  Неожиданный результат: {solution}")
+            print(f"  Unexpected result: {solution}")
     print()
 
     # -----------------------------------------------------------------
-    # Запуск основного агента с использованием стриминга
+    # Running the main agent using streaming
     # -----------------------------------------------------------------
-    print("Запуск агента (запрос 'run.') в режиме стриминга.")
-    print("Вводите действия по запросу.\n")
+    print("Starting the agent (query 'run.') in streaming mode.")
+    print("Enter actions when prompted.\n")
 
     run_stream = agent.stream('run.')
     try:
         for result in run_stream:
             if isinstance(result, dict) and 'error' in result:
-                print(f"Ошибка: {result['error']}")
+                print(f"Error: {result['error']}")
                 break
             elif result is True:
-                print("[Стрим] Агент успешно завершил работу.")
+                print("[Stream] The agent finished successfully.")
             elif result is False:
-                print("[Стрим] Агент не выполнился (False).")
+                print("[Stream] The agent did not complete (False).")
             else:
-                print(f"[Стрим] Неожиданный результат: {result}")
+                print(f"[Stream] Unexpected result: {result}")
     except Exception as e:
-        print(f"Исключение при стриминге: {e}")
+        print(f"Exception during streaming: {e}")
 
     print("\n" + "=" * 60)
 
     # -----------------------------------------------------------------
-    # Проверка финального состояния через стриминг
+    # Checking the final state through streaming
     # -----------------------------------------------------------------
-    print("\nФинальное содержимое памяти (memory/1) в режиме стриминга:")
+    print("\nFinal memory contents (memory/1) in streaming mode:")
     mem_stream = agent.stream('memory(X).')
     found = False
     for sol in mem_stream:
         if isinstance(sol, dict) and 'error' in sol:
-            print(f"Ошибка: {sol['error']}")
+            print(f"Error: {sol['error']}")
             break
         elif isinstance(sol, dict):
             print(f"  X = {sol.get('X')}")
             found = True
         else:
-            print(f"  Неожиданный результат: {sol}")
+            print(f"  Unexpected result: {sol}")
     if not found:
-        print("  Нет решений.")
+        print("  No solutions.")
 
-    print("\nТест завершён.")
+    print("\nTest completed.")
 
 
 if __name__ == "__main__":

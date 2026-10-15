@@ -1,39 +1,39 @@
 """ PyAgentProlog
 
-Семантическая унификация на эмбеддингах.
+Semantic unification on embeddings.
 
-Поддерживаются два backend'а:
-    - 'ollama' — через langchain_ollama.OllamaEmbeddings;
-    - 'st'     — через sentence_transformers.SentenceTransformer.
+Two backends are supported:
+    - 'ollama' — via langchain_ollama.OllamaEmbeddings;
+    - 'st'     — via sentence_transformers.SentenceTransformer.
 
-Слои сопоставления атомов:
-    Layer 1. Нормализация текста (_normalize_text).
-    Layer 2a. Почти идентичные строки (lev_ratio <= lev_typo_max) — match
-              без обращения к модели. Ловит опечатки и морфологические
-              вариации ("Масква" ↔ "москва", "Москве" ↔ "москва").
-    Layer 2b. Levenshtein-коридор: cos >= soft_cos_min и lev_ratio <= lev_max.
+Atom matching layers:
+    Layer 1. Text normalization (_normalize_text).
+    Layer 2a. Nearly identical strings (lev_ratio <= lev_typo_max) — match
+              without calling the model. Catches typos and morphological
+              variants ("Масква" ↔ "москва", "Москве" ↔ "москва").
+    Layer 2b. Levenshtein corridor: cos >= soft_cos_min and lev_ratio <= lev_max.
     Layer 3. Hard: cos >= threshold.
 
-Префиксы эмбеддера:
-    E5 (intfloat, qllama) требует "query: ", nomic — "search_query: ".
-    Префикс применяется внутри EmbeddingUnifier._embed ПОСЛЕ нормализации,
-    поэтому кэш-ключи содержат префикс, а lev_ratio — нет.
+Embedder prefixes:
+    E5 (intfloat, qllama) requires "query: ", nomic — "search_query: ".
+    The prefix is applied inside EmbeddingUnifier._embed AFTER normalization,
+    so cache keys contain the prefix, while lev_ratio does not.
 
-Подавление вывода sentence-transformers / transformers / HF Hub:
-    По умолчанию все служебные сообщения отключены (env-переменные ниже
-    выставляются ДО импорта transformers, плюс программно глушатся
-    прогресс-бары). Чтобы вернуть их, задайте PROLOG_ST_VERBOSE=1.
+Suppressing sentence-transformers / transformers / HF Hub output:
+    By default, all service messages are disabled (env variables below
+    are set BEFORE importing transformers, plus progress bars are silenced
+    programmatically). To bring them back, set PROLOG_ST_VERBOSE=1.
 
-Кастомный embed_fn:
-    semantic_on() и install_embedding_unifier() принимают опциональный
-    embed_fn — готовую функцию текст→эмбеддинг. Если она передана, то
-    model/backend используются только как метка и источник text_prefix,
-    а построение модели не выполняется. Это нужно для HF-обёртки и для
-    внешних backend'ов (STEmbeddingBackend, кастомные энкодеры).
+Custom embed_fn:
+    semantic_on() and install_embedding_unifier() accept an optional
+    embed_fn — a ready text→embedding function. If it is passed, then
+    model/backend are used only as a label and a source of text_prefix,
+    and no model is built. This is needed for the HF wrapper and for
+    external backends (STEmbeddingBackend, custom encoders).
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ from prolog.terms import Term, Variable, Number
 
 
 # =====================================================================
-# Подавление вывода Hugging Face / transformers / sentence-transformers.
-# ВАЖНО: env-переменные выставляются ДО первого импорта transformers.
-# Управление: PROLOG_ST_VERBOSE=1 → вернуть прогресс-бары и предупреждения.
+# Suppressing Hugging Face / transformers / sentence-transformers output.
+# IMPORTANT: env variables are set BEFORE the first import of transformers.
+# Control: PROLOG_ST_VERBOSE=1 → bring back progress bars and warnings.
 # =====================================================================
 def _env_bool(name: str, default: bool = False) -> bool:
     v = os.environ.get(name)
@@ -62,23 +62,23 @@ def _env_bool(name: str, default: bool = False) -> bool:
 _ST_VERBOSE = _env_bool("PROLOG_ST_VERBOSE", False)
 
 if not _ST_VERBOSE:
-    # HF Hub: убирает "Fetching N files…" и полосы скачивания
+    # HF Hub: removes "Fetching N files…" and download bars
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-    # transformers: убирает "Loading weights: 100%|…|" и предупреждения
+    # transformers: removes "Loading weights: 100%|…|" and warnings
     os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-    # tokenizers: убирает "tokenizer_config.json: 100%|…|"
+    # tokenizers: removes "tokenizer_config.json: 100%|…|"
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    # tqdm: универсальное отключение полос (там, где поддерживается)
+    # tqdm: universal disabling of bars (where supported)
     os.environ.setdefault("TQDM_DISABLE", "1")
 
 
 def _silence_transformers() -> None:
-    """Программно глушит логирование и прогресс-бары transformers.
+    """Programmatically silences transformers logging and progress bars.
 
-    Вызывается перед загрузкой ST-модели — на случай, если transformers
-    уже был импортирован раньше и env-переменные не сработали.
+    Called before loading the ST model — in case transformers was
+    already imported earlier and the env variables did not take effect.
     """
     try:
         from transformers.utils import logging as hf_logging
@@ -95,7 +95,7 @@ def _silence_transformers() -> None:
 
 
 # =====================================================================
-# Известные префиксы для популярных эмбеддеров
+# Known prefixes for popular embedders
 # =====================================================================
 KNOWN_MODEL_PREFIXES = [
     ("multilingual-e5", "query: "),
@@ -110,7 +110,7 @@ KNOWN_MODEL_PREFIXES = [
 
 
 # =====================================================================
-# Алиасы: короткое имя → полный HF ID
+# Aliases: short name → full HF ID
 # =====================================================================
 KNOWN_MODEL_ALIASES = {
     "multilingual-e5-large": "intfloat/multilingual-e5-large",
@@ -131,7 +131,7 @@ KNOWN_MODEL_ALIASES = {
 
 
 def resolve_model_id(model: str) -> str:
-    """Нормализует имя модели к полному HF ID."""
+    """Normalizes a model name to its full HF ID."""
     if not model:
         return model
     if os.path.isabs(model):
@@ -142,7 +142,7 @@ def resolve_model_id(model: str) -> str:
 
 
 def detect_text_prefix(model_name: str) -> str:
-    """Определяет префикс по имени модели."""
+    """Determines the prefix by model name."""
     if not model_name:
         return ""
     lower = model_name.lower()
@@ -153,10 +153,10 @@ def detect_text_prefix(model_name: str) -> str:
 
 
 # =====================================================================
-# Layer 1 — Нормализация текста
+# Layer 1 — Text normalization
 # =====================================================================
 def _normalize_text(s: str) -> str:
-    """Каноническая форма строки: strip → снятие парных кавычек → lower()."""
+    """Canonical form of a string: strip → strip paired quotes → lower()."""
     if not isinstance(s, str):
         s = str(s)
     s = s.strip()
@@ -168,10 +168,10 @@ def _normalize_text(s: str) -> str:
 
 
 # =====================================================================
-# Layer 2 — Лексическое расстояние
+# Layer 2 — Lexical distance
 # =====================================================================
 def _lev_ratio(s1: str, s2: str) -> float:
-    """Нормализованное расстояние [0..1]: 0 — идентичны, 1 — максимально разные."""
+    """Normalized distance [0..1]: 0 — identical, 1 — maximally different."""
     if not s1 and not s2:
         return 0.0
     if not s1 or not s2:
@@ -180,10 +180,10 @@ def _lev_ratio(s1: str, s2: str) -> float:
 
 
 # =====================================================================
-# Потокобезопасный кэш эмбеддингов
+# Thread-safe embedding cache
 # =====================================================================
 class EmbeddingCache:
-    """Кэш эмбеддингов. Ключ — нормализованная строка С префиксом."""
+    """Embedding cache. The key is the normalized string WITH the prefix."""
 
     __slots__ = ('_embed_fn', '_max_size', '_cache', '_lock', 'hits', 'misses')
 
@@ -230,24 +230,24 @@ class EmbeddingCache:
 
 
 # =====================================================================
-# Семантический унификатор
+# Semantic unifier
 # =====================================================================
 class EmbeddingUnifier:
-    """Унификатор на эмбеддингах с поддержкой префиксов и трёх слоёв.
+    """Embedding-based unifier with prefix support and three layers.
 
-    Параметры:
-        embed_fn         — функция текст→эмбеддинг (может быть передана
-                           извне через install_embedding_unifier / semantic_on).
-        text_prefix      — строка, добавляемая к тексту перед подачей в модель.
-        threshold        — hard-порог cos (Layer 3).
-        soft_cos_min     — нижняя граница cos для soft-коридора (Layer 2b).
-        lev_max          — максимальный lev_ratio в soft-коридоре.
-        lev_typo_max     — верхняя граница lev_ratio для «опечаток» (Layer 2a).
-                           Обычно lev_typo_max < lev_max.
-        custom_embed_fn  — True, если embed_fn был передан извне (а не построен
-                           внутри install_embedding_unifier). Используется только
-                           для диагностики через semantic_status() и для
-                           reload-логики в semantic_on().
+    Parameters:
+        embed_fn         — text→embedding function (may be passed
+                           externally via install_embedding_unifier / semantic_on).
+        text_prefix      — string added to the text before feeding it to the model.
+        threshold        — hard cos threshold (Layer 3).
+        soft_cos_min     — lower bound of cos for the soft corridor (Layer 2b).
+        lev_max          — maximum lev_ratio in the soft corridor.
+        lev_typo_max     — upper bound of lev_ratio for "typos" (Layer 2a).
+                           Usually lev_typo_max < lev_max.
+        custom_embed_fn  — True if embed_fn was passed externally (not built
+                           inside install_embedding_unifier). Used only
+                           for diagnostics via semantic_status() and for
+                           reload logic in semantic_on().
     """
 
     __slots__ = ('_embed_fn', '_threshold', '_cache', 'stats',
@@ -283,23 +283,23 @@ class EmbeddingUnifier:
             'failures': 0,
         }
 
-    # --------- свойства ---------
+    # --------- properties ---------
     @property
     def cache(self) -> EmbeddingCache:
         return self._cache
 
     @property
     def embed_fn(self) -> Callable[[str], np.ndarray]:
-        """Текущая функция текст→эмбеддинг.
+        """Current text→embedding function.
 
-        Нужна для identity-сравнения в semantic_on: если пользователь
-        передаёт другой embed_fn, унификатор автоматически пересоздаётся.
+        Needed for identity comparison in semantic_on: if the user
+        passes a different embed_fn, the unifier is automatically recreated.
         """
         return self._embed_fn
 
     @property
     def has_custom_embed_fn(self) -> bool:
-        """True, если embed_fn был передан извне (а не построен внутри)."""
+        """True if embed_fn was passed externally (not built inside)."""
         return self._custom_embed_fn
 
     @property
@@ -346,7 +346,7 @@ class EmbeddingUnifier:
     def backend(self) -> str:
         return self._backend
 
-    # --------- утилиты ---------
+    # --------- utilities ---------
     @staticmethod
     def term_to_text(term) -> str:
         return _normalize_text(str(term))
@@ -369,34 +369,34 @@ class EmbeddingUnifier:
             return False
         return isinstance(term, Term) and not term.arguments
 
-    # --------- ядро сопоставления ---------
+    # --------- matching core ---------
     def _semantic_match(self, t1, t2) -> Optional[str]:
-        """Сопоставление двух атомов.
+        """Matching two atoms.
 
-        Возвращает 'exact' | 'typo' | 'hard' | 'soft' | None.
+        Returns 'exact' | 'typo' | 'hard' | 'soft' | None.
 
-        Последовательность:
-            1. exact — строки совпали после нормализации (без модели).
-            2. typo  — lev_ratio <= lev_typo_max (без модели, ловит опечатки).
+        Order:
+            1. exact — strings match after normalization (no model).
+            2. typo  — lev_ratio <= lev_typo_max (no model, catches typos).
             3. hard  — cos >= threshold.
-            4. soft  — soft_cos_min <= cos < threshold и lev_ratio <= lev_max.
-            5. None  — отказ.
+            4. soft  — soft_cos_min <= cos < threshold and lev_ratio <= lev_max.
+            5. None  — reject.
 
-        Модель вызывается только для пар с lev_ratio > lev_typo_max.
+        The model is called only for pairs with lev_ratio > lev_typo_max.
         """
         s1 = self.term_to_text(t1)
         s2 = self.term_to_text(t2)
 
-        # Layer 1: точное совпадение после нормализации
+        # Layer 1: exact match after normalization
         if s1 == s2:
             return 'exact'
 
-        # Layer 2a: почти идентичны по написанию — match без модели
+        # Layer 2a: nearly identical in spelling — match without model
         lev = _lev_ratio(s1, s2)
         if lev <= self._lev_typo_max:
             return 'typo'
 
-        # Семантическая проверка (модель вызывается только тут)
+        # Semantic check (the model is called only here)
         try:
             v1 = self._embed(s1)
             v2 = self._embed(s2)
@@ -404,11 +404,11 @@ class EmbeddingUnifier:
         except Exception:
             return None
 
-        # Layer 3: hard — уверенное семантическое совпадение
+        # Layer 3: hard — confident semantic match
         if cos >= self._threshold:
             return 'hard'
 
-        # Layer 2b: soft — коридор cos + лексическое сходство
+        # Layer 2b: soft — cos corridor + lexical similarity
         if cos >= self._soft_cos_min and lev <= self._lev_max:
             return 'soft'
 
@@ -480,7 +480,7 @@ class EmbeddingUnifier:
 def make_ollama_embed_fn(model: str = "paraphrase-multilingual:latest",
                          base_url: str = "http://localhost:11434"
                          ) -> Callable[[str], np.ndarray]:
-    """Возвращает функцию текст→эмбеддинг на базе OllamaEmbeddings."""
+    """Returns a text→embedding function based on OllamaEmbeddings."""
     try:
         from langchain_ollama import OllamaEmbeddings
     except ImportError:
@@ -498,14 +498,14 @@ def make_ollama_embed_fn(model: str = "paraphrase-multilingual:latest",
 # Backend 2: sentence-transformers
 # =====================================================================
 def _resolve_st_model_path(model: str, local_dir: Optional[str]) -> str:
-    """Разрешает путь к модели.
+    """Resolves the model path.
 
-    Порядок:
-      1. resolve_model_id(model) — короткое имя → полный HF ID.
-      2. Абсолютный путь, если существует → как есть.
-      3. local_dir/<short_name>, если существует → как есть.
-      4. local_dir/models--<org>--<name>, если существует → как есть.
-      5. Иначе → HF ID (ST попробует скачать в cache_folder).
+    Order:
+      1. resolve_model_id(model) — short name → full HF ID.
+      2. Absolute path, if it exists → as is.
+      3. local_dir/<short_name>, if it exists → as is.
+      4. local_dir/models--<org>--<name>, if it exists → as is.
+      5. Otherwise → HF ID (ST will try to download into cache_folder).
     """
     if not model:
         raise ValueError("model name must be non-empty")
@@ -535,16 +535,16 @@ def make_sentence_transformer_embed_fn(model: str,
                                         local_files_only: bool = False,
                                         verbose: Optional[bool] = None,
                                         ) -> Callable[[str], np.ndarray]:
-    """Возвращает функцию текст→эмбеддинг на базе sentence_transformers.
+    """Returns a text→embedding function based on sentence_transformers.
 
-    Префикс сюда НЕ входит — его добавляет EmbeddingUnifier._embed.
+    The prefix is NOT included here — it is added by EmbeddingUnifier._embed.
 
     verbose:
-        None  → берётся из env PROLOG_ST_VERBOSE (по умолчанию False);
-        True  → печатать путь к модели и прогресс-бары;
-        False → полностью тихо.
+        None  → taken from env PROLOG_ST_VERBOSE (default False);
+        True  → print the model path and progress bars;
+        False → completely silent.
 
-    Требуется: pip install sentence-transformers
+    Requires: pip install sentence-transformers
     """
     if verbose is None:
         verbose = _ST_VERBOSE
@@ -556,8 +556,8 @@ def make_sentence_transformer_embed_fn(model: str,
         from sentence_transformers import SentenceTransformer
     except ImportError as e:
         raise ImportError(
-            "Для backend='st' требуется sentence-transformers. "
-            "Установите: pip install sentence-transformers"
+            "backend='st' requires sentence-transformers. "
+            "Install: pip install sentence-transformers"
         ) from e
 
     resolved = _resolve_st_model_path(model, local_dir)
@@ -594,7 +594,7 @@ def make_sentence_transformer_embed_fn(model: str,
 
 
 # =====================================================================
-# Установка/снятие глобального унификатора
+# Installing / uninstalling the global unifier
 # =====================================================================
 def install_embedding_unifier(embed_fn: Optional[Callable[[str], np.ndarray]] = None,
                               threshold: float = 0.8,
@@ -612,21 +612,21 @@ def install_embedding_unifier(embed_fn: Optional[Callable[[str], np.ndarray]] = 
                               st_local_files_only: bool = False,
                               st_verbose: Optional[bool] = None,
                               ) -> EmbeddingUnifier:
-    """Устанавливает глобальный семантический унификатор.
+    """Installs the global semantic unifier.
 
     backend:
-        'ollama' — через langchain_ollama.OllamaEmbeddings.
-        'st'     — через sentence_transformers.SentenceTransformer.
-        'custom' — ничего не строим, используем переданный embed_fn.
-                   Если embed_fn=None, поведение совпадает с 'ollama'.
+        'ollama' — via langchain_ollama.OllamaEmbeddings.
+        'st'     — via sentence_transformers.SentenceTransformer.
+        'custom' — do not build anything, use the passed embed_fn.
+                   If embed_fn=None, behavior is the same as 'ollama'.
 
     embed_fn:
-        Готовая функция текст→эмбеддинг. Если передана — ветка построения
-        модели пропускается; model/backend служат только меткой и
-        источником text_prefix.
+        A ready text→embedding function. If passed, the model-building
+        branch is skipped; model/backend serve only as a label and a
+        source of text_prefix.
 
-    text_prefix=None → автоопределение по имени модели (detect_text_prefix).
-    st_verbose=None  → берётся из env PROLOG_ST_VERBOSE (по умолчанию False).
+    text_prefix=None → auto-detect by model name (detect_text_prefix).
+    st_verbose=None  → taken from env PROLOG_ST_VERBOSE (default False).
     """
     from prolog import terms as _terms
 
@@ -648,16 +648,16 @@ def install_embedding_unifier(embed_fn: Optional[Callable[[str], np.ndarray]] = 
                 verbose=st_verbose,
             )
         elif backend == "custom":
-            # Пользователь попросил 'custom', но не передал embed_fn —
-            # это ошибка конфигурации, падаем явно.
+            # The user asked for 'custom' but did not pass an embed_fn —
+            # this is a configuration error, fail loudly.
             raise ValueError(
-                "backend='custom' требует аргумент embed_fn. "
-                "Передайте готовую функцию текст→эмбеддинг."
+                "backend='custom' requires the embed_fn argument. "
+                "Pass a ready text→embedding function."
             )
         else:
             raise ValueError(
-                f"Неизвестный backend={backend!r}. "
-                f"Допустимые: 'ollama', 'st', 'custom'."
+                f"Unknown backend={backend!r}. "
+                f"Valid: 'ollama', 'st', 'custom'."
             )
 
     unifier = EmbeddingUnifier(
@@ -676,13 +676,13 @@ def install_embedding_unifier(embed_fn: Optional[Callable[[str], np.ndarray]] = 
 
 
 def uninstall_embedding_unifier() -> None:
-    """Возвращает строгую унификацию по умолчанию."""
+    """Reverts to the default strict unification."""
     from prolog import terms as _terms
     _terms.clear_custom_unifier()
 
 
 # =====================================================================
-# API для управления из Prolog
+# API for management from Prolog
 # =====================================================================
 _state_lock = threading.RLock()
 _current_unifier: Optional[EmbeddingUnifier] = None
@@ -713,39 +713,39 @@ def semantic_on(threshold: Optional[float] = None,
                 st_verbose: Optional[bool] = None,
                 embed_fn: Optional[Callable[[str], np.ndarray]] = None,
                 force_reload: bool = False) -> EmbeddingUnifier:
-    """Включить семантическую унификацию.
+    """Enable semantic unification.
 
-    Параметры:
+    Parameters:
         embed_fn:
-            None            → построить embed_fn внутри по model/backend.
-                              Поведение полностью совпадает с прежним.
-            Callable        → использовать готовую функцию текст→эмбеддинг.
-                              model/backend в этом случае служат только
-                              меткой и источником text_prefix. Если identity
-                              embed_fn отличается от текущего унификатора,
-                              унификатор автоматически пересоздаётся —
-                              force_reload не требуется.
+            None            → build embed_fn internally from model/backend.
+                              Behavior is fully the same as before.
+            Callable        → use a ready text→embedding function.
+                              In this case, model/backend serve only as
+                              a label and a source of text_prefix. If the
+                              identity of embed_fn differs from that of the
+                              current unifier, the unifier is automatically
+                              recreated — force_reload is not required.
 
         text_prefix:
-            None → автоопределение; "" → без префикса; "query: " → явный.
+            None → auto-detect; "" → no prefix; "query: " → explicit.
 
         backend:
-            None → 'custom' при embed_fn, иначе 'ollama'.
+            None → 'custom' if embed_fn, else 'ollama'.
             'ollama' | 'st' | 'custom'.
 
         st_verbose:
-            None → из env PROLOG_ST_VERBOSE (по умолчанию тихо).
+            None → from env PROLOG_ST_VERBOSE (default silent).
 
         force_reload:
-            True → гарантированно пересоздать унификатор.
+            True → guaranteed to recreate the unifier.
     """
     global _current_unifier
     with _state_lock:
-        # ---- Авто-detect смены embed_fn ----
-        # Если пользователь передал кастомную функцию и она отличается
-        # по identity от той, что стоит в текущем унификаторе,
-        # принудительно пересоздаём — иначе новые эмбеддинги просто
-        # не подхватятся, потому что унификатор хранит старый _embed_fn.
+        # ---- Auto-detect embed_fn change ----
+        # If the user passed a custom function and it differs by
+        # identity from the one in the current unifier,
+        # force recreation — otherwise the new embeddings simply
+        # will not be picked up, because the unifier stores the old _embed_fn.
         if embed_fn is not None and _current_unifier is not None:
             if _current_unifier.embed_fn is not embed_fn:
                 force_reload = True
@@ -756,7 +756,7 @@ def semantic_on(threshold: Optional[float] = None,
             if backend is not None and backend != _current_unifier.backend:
                 need_new = True
             if not need_new:
-                # ---- in-place update параметров ----
+                # ---- in-place parameter update ----
                 if threshold is not None:
                     _current_unifier.threshold = float(threshold)
                 if soft_cos_min is not None:
@@ -769,11 +769,11 @@ def semantic_on(threshold: Optional[float] = None,
                     _current_unifier.text_prefix = text_prefix
                 return _current_unifier
 
-        # ---- Значения по умолчанию ----
+        # ---- Defaults ----
         if backend is None:
-            # С кастомным embed_fn метка 'custom' информативнее, чем 'ollama'.
-            # На построение это не влияет: install_embedding_unifier
-            # пропускает свою ветку, когда embed_fn уже задан.
+            # With a custom embed_fn, the label 'custom' is more informative
+            # than 'ollama'. It does not affect building:
+            # install_embedding_unifier skips its branch when embed_fn is given.
             backend = "custom" if embed_fn is not None else "ollama"
         if model is None:
             model = DEFAULT_ST_MODEL if backend == "st" else DEFAULT_MODEL
@@ -829,7 +829,7 @@ def semantic_set_threshold(value: float) -> bool:
 def semantic_set_corridor(soft_cos_min: Optional[float] = None,
                           lev_max: Optional[float] = None,
                           lev_typo_max: Optional[float] = None) -> bool:
-    """Изменить параметры коридоров. Возвращает False, если унификатор не установлен."""
+    """Change corridor parameters. Returns False if the unifier is not installed."""
     with _state_lock:
         if _current_unifier is None:
             return False

@@ -1,27 +1,27 @@
 """ PyAgentProlog
 
-Парсер для полного Prolog
+Parser for full Prolog.
 
-Поддерживает распознавание директив семантической унификации:
+Supports recognition of semantic unification directives:
     :- semantic_on.
     :- semantic_on(0.85).
     :- semantic_off.
     :- semantic_threshold(0.75).
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 import re
 
-# Регулярные выражения для токенов
+# Token regular expressions
 TOKEN_REGEX = r'\"[^\"]*\"|\'[^\']*\'|[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?|[a-zа-яё][a-zA-ZА-Яа-яЁё0-9_]*|[A-ZА-ЯЁ_][A-Za-zА-Яа-яЁё0-9_]*|:\-|->|\\\+|[()\.,;]|\[|\]|\||=:=|=\\=|=<|>=|==|\\==|\\=|@>=|@>|@=<|@<|=\.\.|=|\+\+|\+|\-|\*\*|//|>>|<<|\*|/|mod|div|!|is|[><]=?|\^'
 ATOM_NAME_REGEX = r"^[a-zа-яё][A-Za-zА-Яа-яЁё0-9_]*$"
 VARIABLE_REGEX = r"^[A-ZА-ЯЁ_][A-Za-zА-Яа-яЁё0-9_]*$"
 NUMBER_REGEX = r"^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?$"
 
-# Директивы, распознаваемые как «команды» и передаваемые в Solver/Database
+# Directives recognized as "commands" and forwarded to Solver/Database
 SEMANTIC_DIRECTIVE_NAMES = {
     'semantic_on',
     'semantic_off',
@@ -31,8 +31,8 @@ SEMANTIC_DIRECTIVE_NAMES = {
 
 def remove_comments(input_text):
     """
-    Удаление комментариев из текста с поддержкой вложенных многострочных
-    комментариев /* ... /* ... */ ... */.
+    Removes comments from text, supporting nested multi-line
+    comments /* ... /* ... */ ... */.
     """
     result = []
     i = 0
@@ -106,8 +106,8 @@ def remove_comments(input_text):
 
 def parse_tokens_with_positions(input_text):
     """
-    Возвращает (tokens, positions), где tokens - список строк-токенов,
-    positions - список кортежей (start, end) для каждого токена в очищенном тексте.
+    Returns (tokens, positions), where tokens is a list of token strings,
+    positions is a list of (start, end) tuples for each token in the cleaned text.
     """
     clean_text = remove_comments(input_text)
     tokens = []
@@ -119,14 +119,14 @@ def parse_tokens_with_positions(input_text):
 
 
 def parse_query_from_string(input_text):
-    """Вспомогательная функция для парсинга запроса из строки"""
+    """Helper function for parsing a query from a string"""
     parser = Parser(input_text)
     return parser.parse_query()
 
 
 class Parser(object):
     """
-    ПРИМЕЧАНИЕ: Экземпляр можно использовать только один раз!
+    NOTE: An instance can be used only once!
     """
 
     OPERATOR_PRECEDENCE = {
@@ -180,9 +180,9 @@ class Parser(object):
             if line_no <= len(lines):
                 line_text = lines[line_no - 1]
                 indicator = ' ' * col_no + '^'
-                return f"Ошибка: {message}\n   в строке {line_no}, колонка {col_no+1}:\n   {line_text}\n   {indicator}"
+                return f"Error: {message}\n   at line {line_no}, column {col_no+1}:\n   {line_text}\n   {indicator}"
             else:
-                return f"Ошибка: {message}\n   позиция токена {token_index} (start={start})"
+                return f"Error: {message}\n   token position {token_index} (start={start})"
         elif token_index == len(self._tokens) and self._token_positions:
             start, end = self._token_positions[-1]
             line_no = self._clean_text[:start].count('\n') + 1
@@ -191,16 +191,16 @@ class Parser(object):
             if line_no <= len(lines):
                 line_text = lines[line_no - 1]
                 indicator = ' ' * col_no + '^'
-                return f"Ошибка: {message}\n   в строке {line_no}, колонка {col_no+1}:\n   {line_text}\n   {indicator}"
-        return f"Ошибка: {message}\n   (конец входных данных)"
+                return f"Error: {message}\n   at line {line_no}, column {col_no+1}:\n   {line_text}\n   {indicator}"
+        return f"Error: {message}\n   (end of input)"
     
     def parse_rules(self, return_directives=False):
-        """Разбор списка правил.
+        """Parse a list of rules.
 
-        Если return_directives=False (по умолчанию), возвращает список Rule.
-        Если return_directives=True, возвращает кортеж (rules, directives),
-        где directives — список Term для известных директив (semantic_on и т. п.).
-        Неизвестные директивы, как и раньше, игнорируются.
+        If return_directives=False (default), returns a list of Rule.
+        If return_directives=True, returns a tuple (rules, directives),
+        where directives is a list of Term for known directives
+        (semantic_on, etc.). Unknown directives, as before, are ignored.
         """
         rules = []
         directives = []
@@ -218,7 +218,7 @@ class Parser(object):
                 if rule:
                     rules.append(rule)
             except Exception as e:
-                print(f"Ошибка при разборе правила: {e}")
+                print(f"Error while parsing rule: {e}")
                 raise
         
         if return_directives:
@@ -226,19 +226,19 @@ class Parser(object):
         return rules
     
     def parse_query(self):
-        """Разбор запроса"""
+        """Parse a query"""
         self._index = 0
         self._scope = {}
         
         if not self._tokens:
-            raise Exception(self._error("Пустой запрос"))
+            raise Exception(self._error("Empty query"))
         
         term = self.parse_conjunction()
         
         if self._current and self._current == ".":
             self._next()
         else:
-            raise Exception(self._error(f"Ожидалась '.' в конце запроса, но получено '{self._current}'"))
+            raise Exception(self._error(f"Expected '.' at end of query, got '{self._current}'"))
         
         return term
     
@@ -263,18 +263,18 @@ class Parser(object):
         if self._current == expected:
             return self._next()
         if message is None:
-            message = f"Ожидался токен '{expected}', но получен '{self._current}'"
+            message = f"Expected token '{expected}', got '{self._current}'"
         raise Exception(self._error(message))
     
     def parse_directive(self):
-        """Разобрать директиву :- Goal.
+        """Parse a directive :- Goal.
 
-        Возвращает Term, если это известная директива из SEMANTIC_DIRECTIVE_NAMES,
-        иначе None (директива просто пропускается, как раньше).
+        Returns a Term if it is a known directive from SEMANTIC_DIRECTIVE_NAMES,
+        otherwise None (the directive is simply skipped, as before).
         """
-        self._expect(":-", "Ожидалось ':-' для директивы")
+        self._expect(":-", "Expected ':-' for directive")
 
-        # Пытаемся аккуратно распарсить содержимое
+        # Try to parse the content carefully
         start_index = self._index
         start_scope = dict(self._scope)
 
@@ -284,11 +284,11 @@ class Parser(object):
         except Exception:
             directive_term = None
 
-        # Проверяем, что действительно дошли до точки
+        # Check that we really reached the period
         if self._current == ".":
             self._next()
         else:
-            # Откатываемся и используем старую «тупую» логику пропуска до точки
+            # Roll back and use the old "dumb" skip-to-period logic
             self._index = start_index
             self._scope = start_scope
             directive_term = None
@@ -322,7 +322,7 @@ class Parser(object):
         return None
     
     def parse_atom(self):
-        """Разбор атома"""
+        """Parse an atom"""
         from prolog.terms import Term, Variable, Number
         
         if not self._current:
@@ -371,7 +371,7 @@ class Parser(object):
         return Term(token)
     
     def parse_primary(self):
-        """Разбор первичного выражения"""
+        """Parse a primary expression"""
         from prolog.terms import Term, Variable, Number
 
         if not self._current:
@@ -391,7 +391,7 @@ class Parser(object):
         if self._current == "(":
             self._next()
             expr = self.parse_expression()
-            self._expect(")", "Ожидалось ')' после выражения в скобках")
+            self._expect(")", "Expected ')' after expression in parentheses")
             return expr
 
         if self._current == "-":
@@ -424,7 +424,7 @@ class Parser(object):
             self._next()
             expr = self.parse_primary()
             if expr is None:
-                raise Exception(self._error("Ожидалось выражение после '+'"))
+                raise Exception(self._error("Expected expression after '+'"))
             return expr
 
         atom = self.parse_atom()
@@ -441,7 +441,7 @@ class Parser(object):
                     self._next()
                     return Term(name, [])
                 arguments = self.parse_arguments()
-                self._expect(")", "Ожидалось ')' после аргументов")
+                self._expect(")", "Expected ')' after arguments")
                 return Term(name, arguments)
             else:
                 return atom
@@ -449,7 +449,7 @@ class Parser(object):
         return atom
     
     def parse_expression(self, min_precedence=0):
-        """Разбор выражения с учетом приоритета операторов (алгоритм Пратта)"""
+        """Parse an expression respecting operator precedence (Pratt algorithm)"""
         from prolog.terms import Term
         
         left = self.parse_primary()
@@ -476,14 +476,14 @@ class Parser(object):
             right = self.parse_expression(next_precedence)
             
             if right is None:
-                raise Exception(self._error(f"Ожидалось выражение после оператора {op}"))
+                raise Exception(self._error(f"Expected expression after operator {op}"))
             
             left = Term(op, [left, right])
         
         return left
     
     def parse_list(self):
-        """Разбор списка"""
+        """Parse a list"""
         from prolog.terms import Term
         
         self._expect("[")
@@ -496,7 +496,7 @@ class Parser(object):
         while True:
             element = self.parse_expression(min_precedence=1001)
             if element is None:
-                raise Exception(self._error("Ожидался элемент списка"))
+                raise Exception(self._error("Expected list element"))
             
             elements.append(element)
             
@@ -507,8 +507,8 @@ class Parser(object):
                 self._next()
                 tail = self.parse_expression()
                 if tail is None:
-                    raise Exception(self._error("Ожидалось выражение после '|'"))
-                self._expect("]", "Ожидалось ']' после хвоста списка")
+                    raise Exception(self._error("Expected expression after '|'"))
+                self._expect("]", "Expected ']' after list tail")
                 result = tail
                 for element in reversed(elements):
                     result = Term('.', [element, result])
@@ -517,7 +517,7 @@ class Parser(object):
                 self._next()
                 break
             else:
-                raise Exception(self._error(f"Ожидался ',', '|' или ']', но получено '{self._current}'"))
+                raise Exception(self._error(f"Expected ',', '|', or ']', got '{self._current}'"))
         
         result = Term("[]", [])
         for element in reversed(elements):
@@ -526,7 +526,7 @@ class Parser(object):
         return result
     
     def parse_arguments(self):
-        """Разбор аргументов терма"""
+        """Parse the arguments of a term"""
         from prolog.terms import Term
         
         arguments = []
@@ -538,7 +538,7 @@ class Parser(object):
             arg = self.parse_expression(min_precedence=1001)
             
             if arg is None:
-                raise Exception(self._error(f"Ожидалось выражение для аргумента, но получено '{self._current}'"))
+                raise Exception(self._error(f"Expected expression for argument, got '{self._current}'"))
             
             arguments.append(arg)
             
@@ -549,16 +549,16 @@ class Parser(object):
             elif self._current == ")":
                 break
             else:
-                raise Exception(self._error(f"Ожидалась ',' или ')', но получено '{self._current}'"))
+                raise Exception(self._error(f"Expected ',' or ')', got '{self._current}'"))
         
         return arguments
     
     def parse_rule_or_query(self):
-        """Разбор правила или факта (с поддержкой оператора :- в термах)"""
+        """Parse a rule or fact (supporting the :- operator in terms)"""
         from prolog.terms import Rule, Term
         expr = self.parse_expression(min_precedence=1201)
         if expr is None:
-            raise Exception(self._error("Ожидалось выражение для головы правила"))
+            raise Exception(self._error("Expected expression for rule head"))
 
         if isinstance(expr, Term) and expr.functor == ':-' and len(expr.arguments) == 2:
             head = expr.arguments[0]
@@ -567,7 +567,7 @@ class Parser(object):
                 self._next()
                 return Rule(head, body)
             else:
-                raise Exception(self._error(f"Ожидалась '.' в конце правила, но получено '{self._current}'"))
+                raise Exception(self._error(f"Expected '.' at end of rule, got '{self._current}'"))
 
         head = expr
         if self._current == ".":
@@ -577,15 +577,15 @@ class Parser(object):
             self._next()
             body = self.parse_conjunction()
             if body is None:
-                raise Exception(self._error("Ожидалось тело правила после ':-'"))
+                raise Exception(self._error("Expected rule body after ':-'"))
             if self._current != ".":
-                raise Exception(self._error(f"Ожидалась '.' в конце правила, но получено '{self._current}'"))
+                raise Exception(self._error(f"Expected '.' at end of rule, got '{self._current}'"))
             self._next()
             return Rule(head, body)
         return Rule(head, Term("true", []))
         
     def parse_conjunction(self):
-        """Разбор списка выражений, разделенных запятыми как конъюнкции"""
+        """Parse a comma-separated list of expressions as a conjunction"""
         from prolog.terms import Term
         goals = []
         while True:

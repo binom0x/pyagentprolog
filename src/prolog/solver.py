@@ -1,10 +1,10 @@
 """ PyAgentProlog
 
-Солвер с поддержкой объяснений и применением директив семантической унификации.
+Solver with explanation support and application of semantic unification directives.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 from prolog.parser import Parser
@@ -17,8 +17,8 @@ from collections import defaultdict
 
 class Solver(object):
     def __init__(self, rules_text="", context=None):
-        """Проанализировать текст правил и инициализировать базу данных,
-        а также применить директивы семантической унификации."""
+        """Parse the rules text and initialize the database,
+        and apply semantic unification directives."""
         parser = Parser(rules_text)
         rules, directives = parser.parse_rules(return_directives=True)
         self.database = Database(rules, context=context)
@@ -26,14 +26,14 @@ class Solver(object):
         self._apply_directives(directives)
 
     # ------------------------------------------------------------------
-    # Применение директив, распознанных парсером
+    # Applying directives recognized by the parser
     # ------------------------------------------------------------------
     def _apply_directives(self, directives):
         for d in directives:
             try:
                 self._apply_one_directive(d)
             except Exception as e:
-                print(f"[Solver] Ошибка применения директивы {d}: {e}")
+                print(f"[Solver] Error applying directive {d}: {e}")
 
     def _apply_one_directive(self, d: Term):
         name = d.functor
@@ -48,9 +48,9 @@ class Solver(object):
                 if isinstance(t, Number):
                     semantic_on(threshold=float(t.value))
                 else:
-                    raise ValueError(f"semantic_on/1 ожидает число, получено {t}")
+                    raise ValueError(f"semantic_on/1 expects a number, got {t}")
             else:
-                raise ValueError("semantic_on принимает 0 или 1 аргумент")
+                raise ValueError("semantic_on takes 0 or 1 argument")
 
         elif name == 'semantic_off':
             from prolog.embedding_unify import semantic_off
@@ -58,22 +58,22 @@ class Solver(object):
 
         elif name == 'semantic_threshold':
             if len(args) != 1 or not isinstance(args[0], Number):
-                raise ValueError("semantic_threshold/1 ожидает число")
+                raise ValueError("semantic_threshold/1 expects a number")
             from prolog.embedding_unify import semantic_set_threshold, semantic_get_unifier
             if semantic_get_unifier() is None:
-                # Если унификатор ещё не включён — не падаем, просто ничего не делаем
+                # If the unifier is not yet enabled — do not fail, just do nothing
                 return
             semantic_set_threshold(float(args[0].value))
 
     # ------------------------------------------------------------------
-    # Поиск решений
+    # Searching for solutions
     # ------------------------------------------------------------------
     def find_solutions(self, query_text, with_explanation=False):
-        """Проанализировать текст запроса и найти решения"""
+        """Parse the query text and find solutions"""
         try:
             query = Parser(query_text).parse_query()
         except Exception as e:
-            print(f"Ошибка парсинга запроса: {e}")
+            print(f"Query parse error: {e}")
             return None
 
         try:
@@ -144,9 +144,9 @@ class Solver(object):
             return False
 
     def get_explanation(self, format="text"):
-        """Получить объяснение последнего запроса"""
+        """Get the explanation of the last query"""
         if not self.last_tracer:
-            return "Нет данных трассировки. Выполните запрос с with_explanation=True"
+            return "No tracing data. Run a query with with_explanation=True"
 
         if format == "text":
             return self.last_tracer.get_proof_tree()
@@ -159,7 +159,7 @@ class Solver(object):
 
 
 def ParseSolution(query, solution, explanation=None):
-    """Форматирование решения для вывода"""
+    """Format the solution for output"""
     def term_to_string(term: Term):
         term_str = str(term)
         return term_str
@@ -177,11 +177,11 @@ def ParseSolution(query, solution, explanation=None):
         result["output"] = "False"
     elif solution is None:
         result["solution"] = None
-        result["output"] = "Нет решения"
+        result["output"] = "No solution"
     elif isinstance(solution, list):
         if not solution:
             result["solution"] = None
-            result["output"] = "Нет решения"
+            result["output"] = "No solution"
         else:
             solutions_list = []
             outputs = []
@@ -213,7 +213,7 @@ def ParseSolution(query, solution, explanation=None):
     elif isinstance(solution, dict):
         if not solution:
             result["solution"] = None
-            result["output"] = "Нет решения"
+            result["output"] = "No solution"
         else:
             bound_dict = {}
             out_parts = []
@@ -244,7 +244,7 @@ def ParseSolution(query, solution, explanation=None):
 
 
 def format_explanation_for_human(explanation):
-    """Форматирование объяснения для человеческого чтения"""
+    """Format an explanation for human reading"""
     if isinstance(explanation, dict):
         return format_dict_explanation(explanation)
     elif hasattr(explanation, 'get_proof_tree'):
@@ -254,9 +254,9 @@ def format_explanation_for_human(explanation):
 
 
 def format_dict_explanation(explanation_dict):
-    """Форматирование словаря с объяснением"""
+    """Format a dict with an explanation"""
     result = "=" * 60 + "\n"
-    result += "ОБЪЯСНЕНИЕ ВЫПОЛНЕНИЯ ЗАПРОСА\n"
+    result += "QUERY EXECUTION EXPLANATION\n"
     result += "=" * 60 + "\n\n"
 
     if 'steps' in explanation_dict:
@@ -268,21 +268,21 @@ def format_dict_explanation(explanation_dict):
 
 
 def format_step(step_dict, indent):
-    """Форматирование одного шага"""
+    """Format a single step"""
     indent_str = "  " * indent
     result = f"{indent_str}• {step_dict['goal']}"
 
     if step_dict['rule_used']:
-        result += f"\n{indent_str}  Правило: {step_dict['rule_used']}"
+        result += f"\n{indent_str}  Rule: {step_dict['rule_used']}"
 
     if step_dict['unification']:
         unif_str = ", ".join([f"{var} = {val}" for var, val in step_dict['unification']])
-        result += f"\n{indent_str}  Унификация: {unif_str}"
+        result += f"\n{indent_str}  Unification: {unif_str}"
 
     if step_dict['builtin']:
-        result += f"\n{indent_str}  [Встроенный предикат]"
+        result += f"\n{indent_str}  [Built-in predicate]"
 
-    result += f"\n{indent_str}  Результат: {'✓ УСПЕХ' if step_dict['success'] else '✗ НЕУДАЧА'}"
+    result += f"\n{indent_str}  Result: {'✓ SUCCESS' if step_dict['success'] else '✗ FAILURE'}"
 
     for child in step_dict['children']:
         result += "\n" + format_step(child, indent + 1)
@@ -291,47 +291,47 @@ def format_step(step_dict, indent):
 
 
 if __name__ == "__main__":
-    print("Тестирование солвера с объяснениями:")
+    print("Testing the solver with explanations:")
     print("=" * 50)
 
     program = """
-    родитель(иван, алексей).
-    родитель(иван, мария).
-    родитель(алексей, петр).
-    родитель(алексей, анна).
+    parent(ivan, alexey).
+    parent(ivan, maria).
+    parent(alexey, peter).
+    parent(alexey, anna).
 
-    дедушка(Дедушка, Внук) :-
-        родитель(Дедушка, Родитель),
-        родитель(Родитель, Внук).
+    grandfather(Grandfather, Grandson) :-
+        parent(Grandfather, Parent),
+        parent(Parent, Grandson).
 
-    тест_суммы(A, B, C) :- C is A + B.
+    test_sum(A, B, C) :- C is A + B.
     """
 
     solver = Solver(program)
 
-    print("Загруженная программа:")
+    print("Loaded program:")
     print("=" * 50)
     for rule in solver.database.rules:
         print(rule)
     print("=" * 50)
     print()
 
-    query = "дедушка(иван, X)."
-    print(f"Запрос: {query}")
+    query = "grandfather(ivan, X)."
+    print(f"Query: {query}")
 
     solutions, explanation = solver.find_solutions(query, with_explanation=True)
 
     print("RAW RESULT: ", solutions)
 
     parsed_result = ParseSolution(query, solutions, explanation)
-    print(f"Результат: {parsed_result['solution']}")
+    print(f"Result: {parsed_result['solution']}")
     if 'count' in parsed_result:
-        print(f"Количество решений: {parsed_result['count']}")
+        print(f"Number of solutions: {parsed_result['count']}")
 
     print("\n" + "=" * 50)
-    print("ОБЪЯСНЕНИЕ:")
+    print("EXPLANATION:")
     print(solver.get_explanation())
     print("=" * 50)
 
-    print("\nФорматированное объяснение:")
+    print("\nFormatted explanation:")
     print(format_explanation_for_human(explanation))

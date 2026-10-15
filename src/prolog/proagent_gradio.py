@@ -1,9 +1,9 @@
 """ PyAgentProlog
 
-Gradio-сессии для агента (без Expert — Expert вынесен в examples/expert_app/).
+Gradio sessions for the agent (without Expert — Expert moved to examples/expert_app/).
 
 (c) 2026 Andrey Vorfolomeev
-версия 5.9.1
+version 1.0.1
 """
 
 import threading
@@ -16,7 +16,7 @@ from prolog.agent import Agent, effector_action, simple_action
 
 
 # ----------------------------------------------------------------------
-# БАЗОВЫЙ КЛАСС СЕССИИ
+# BASE SESSION CLASS
 # ----------------------------------------------------------------------
 class BaseGradioSession:
     def __init__(self):
@@ -52,7 +52,7 @@ class BaseGradioSession:
 
 
 # ----------------------------------------------------------------------
-# СЕССИЯ ДЛЯ АГЕНТА
+# SESSION FOR THE AGENT
 # ----------------------------------------------------------------------
 class AgentGradioSession(BaseGradioSession):
     def __init__(self):
@@ -73,9 +73,9 @@ class AgentGradioSession(BaseGradioSession):
                 agent.context = {}
             agent.context['agent_session'] = self
             result = agent.query(query)
-            self.add_output(f"Агент завершил выполнение. Результат: {result}")
+            self.add_output(f"Agent finished execution. Result: {result}")
         except Exception as e:
-            self.add_output(f"Ошибка в агенте: {e}")
+            self.add_output(f"Error in agent: {e}")
         finally:
             self.running = False
             self.thread = None
@@ -93,7 +93,7 @@ class AgentGradioSession(BaseGradioSession):
 
 
 # ----------------------------------------------------------------------
-# РЕЕСТР СЕССИЙ (публичный API — приложение регистрирует свои сессии)
+# SESSION REGISTRY (public API — the application registers its own sessions)
 # ----------------------------------------------------------------------
 _sessions: Dict[str, BaseGradioSession] = {}
 _sessions_lock = threading.Lock()
@@ -115,7 +115,7 @@ def remove_session(session_id: str) -> None:
 
 
 # ----------------------------------------------------------------------
-# ФУНКЦИИ ДЛЯ РАБОТЫ С СЕССИЯМИ АГЕНТА
+# FUNCTIONS FOR WORKING WITH AGENT SESSIONS
 # ----------------------------------------------------------------------
 def create_agent_session() -> str:
     session_id = str(uuid.uuid4())
@@ -143,7 +143,7 @@ def get_agent_outputs(session_id: str) -> List[str]:
 
 
 # ----------------------------------------------------------------------
-# ОБЩИЕ ФУНКЦИИ
+# COMMON FUNCTIONS
 # ----------------------------------------------------------------------
 def is_session_running(session_id: str) -> bool:
     sess = get_session(session_id)
@@ -158,7 +158,7 @@ def stop_session(session_id: str) -> None:
 
 
 # ----------------------------------------------------------------------
-# ДЕЙСТВИЯ АГЕНТА ДЛЯ ВЗАИМОДЕЙСТВИЯ С UI
+# AGENT ACTIONS FOR INTERACTING WITH THE UI
 # ----------------------------------------------------------------------
 @effector_action('gradio_print', 1)
 def gradio_print(msg, context):
@@ -178,7 +178,7 @@ def gradio_read_input(context):
 
 
 @simple_action('gradio_get_ui_value', 2, output_arg=1,
-               description="Получает значение UI-компонента по имени")
+               description="Retrieves the value of a UI component by name")
 def gradio_get_ui_value(name, context):
     session = context.get('agent_session')
     if session and isinstance(session, AgentGradioSession):
@@ -210,7 +210,7 @@ def prolog_format_to_python(fmt: str) -> str:
 
 
 @simple_action('format', 3, output_arg=2,
-               description="format(+Format, +Args, -Result) – форматирует строку.")
+               description="format(+Format, +Args, -Result) – formats a string.")
 def format_action(fmt, args, context):
     if not isinstance(args, list):
         args = [args]

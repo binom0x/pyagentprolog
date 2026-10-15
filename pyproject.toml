@@ -24,12 +24,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
-# Обязательные зависимости (ядро)
 dependencies = [
     "numpy>=1.26.4,<2.0",
 ]
 
-# Опциональные зависимости (устанавливаются через pyagentprolog[extra])
 [project.optional-dependencies]
 numba = ["numba>=0.67.0"]
 langchain = ["langchain-core>=1.4.8,<2.0"]
@@ -52,11 +50,9 @@ all = [
 Homepage = "https://github.com/binom0x/pyagentprolog"
 Repository = "https://github.com/binom0x/pyagentprolog.git"
 
-# Где искать пакеты
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["prolog*"]
 
-# Включать не-Python файлы (если есть, например JSON-глоссарии)
 #[tool.setuptools.package-data]
 #prolog = ["glossary/*.json"]

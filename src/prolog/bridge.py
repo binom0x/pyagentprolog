@@ -1,20 +1,17 @@
-"""PyAgentProlog — канонический мост Prolog ↔ Python.
+"""PyAgentProlog — canonical Prolog ↔ Python bridge.
 
-Единственная точка преобразования между Prolog-термами и Python-объектами.
-Реализация перенесена сюда из prolog/agent.py, чтобы устранить дублирование
-с neuroagent/bridge.py и сохранить PyAgentProlog как самостоятельный,
-независимый пакет (prolog не зависит от neuroagent).
+The single conversion point between Prolog terms and Python objects.
 
-Использование:
+Usage:
     from prolog.bridge import prolog_to_python, python_to_prolog
 
-Совместимость:
-    from prolog.agent import prolog_to_python       # тот же объект
-    from neuroagent.bridge import prolog_to_python  # тот же объект
+Compatibility:
+    from prolog.agent import prolog_to_python       # same object
+    from neuroagent.bridge import prolog_to_python  # same object
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 from __future__ import annotations
 from typing import Any, List
@@ -23,10 +20,10 @@ from prolog.terms import Term, Variable, Number
 
 
 def prolog_list_to_python(term: Any) -> Any:
-    """Преобразует Prolog-список (Term с . или []) в Python-список термов.
+    """Converts a Prolog list (Term with . or []) into a Python list of terms.
 
-    Отличие от prolog_to_python: возвращает СПИСОК ТЕРМОВ (Term), а не
-    Python-значений. Если term — не список, возвращает его как есть.
+    Differs from prolog_to_python: returns a LIST OF TERMS (Term), not
+    Python values. If term is not a list, returns it as is.
     """
     if isinstance(term, Term):
         if term.functor == '[]' and len(term.arguments) == 0:
@@ -47,25 +44,25 @@ def prolog_list_to_python(term: Any) -> Any:
 
 
 def prolog_to_python(term: Any) -> Any:
-    """Преобразует Prolog-терм в Python-объект.
+    """Converts a Prolog term into a Python object.
 
-    Соответствия:
+    Mappings:
         Number            → int/float
         Variable          → None
-        Строка в кавычках → str (без кавычек)
-        Атом              → str
-        Список            → list
-        Составной терм    → str
+        Quoted string     → str (without quotes)
+        Atom              → str
+        List              → list
+        Compound term     → str
     """
     if isinstance(term, Number):
         return term.value
     if isinstance(term, Variable):
         return None
     if isinstance(term, Term):
-        # Пустой список
+        # Empty list
         if term.functor == '[]' and not term.arguments:
             return []
-        # Непустой список
+        # Non-empty list
         if term.functor == '.' and len(term.arguments) == 2:
             elements = []
             cur = term
@@ -79,45 +76,45 @@ def prolog_to_python(term: Any) -> Any:
                     and not cur.arguments):
                 return elements
             return str(term)
-        # Атом (возможно, число)
+        # Atom (possibly a number)
         if not term.arguments:
             f = term.functor
             if not isinstance(f, str):
                 return f
-            # Пробуем интерпретировать как число
+            # Try to interpret as a number
             try:
                 if '.' in f or 'e' in f.lower():
                     return float(f)
                 return int(f)
             except ValueError:
                 pass
-            # Строка в кавычках — снимаем кавычки
+            # Quoted string — strip the quotes
             if len(f) >= 2 and f[0] == '"' and f[-1] == '"':
                 return f[1:-1]
             if len(f) >= 2 and f[0] == "'" and f[-1] == "'":
                 return f[1:-1]
             return f
-        # Другие составные термы — строковое представление
+        # Other compound terms — string representation
         return str(term)
     return str(term)
 
 
 def python_to_prolog(obj: Any) -> Term:
-    """Преобразует Python-объект в Prolog-терм.
+    """Converts a Python object into a Prolog term.
 
-    Соответствия:
-        Term         → как есть
-        bool         → атом true/false
+    Mappings:
+        Term         → as is
+        bool         → atom true/false
         int/float    → Number
-        str          → атом в двойных кавычках
-        list         → Prolog-список
-        dict         → список пар '-'(K, V)
-        None         → пустой список []
-        прочее       → атом в двойных кавычках (str(obj))
+        str          → atom in double quotes
+        list         → Prolog list
+        dict         → list of pairs '-'(K, V)
+        None         → empty list []
+        other        → atom in double quotes (str(obj))
     """
     if isinstance(obj, Term):
         return obj
-    # bool ДО int: True/False должны быть атомами, а не числами
+    # bool BEFORE int: True/False must be atoms, not numbers
     if isinstance(obj, bool):
         return Term('true' if obj else 'false')
     if isinstance(obj, (int, float)):

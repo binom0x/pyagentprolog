@@ -1,24 +1,24 @@
 """prolog_benchmark.py
 
-Бенчмарк для выявления компонентов PyAgentProlog, которые имеет смысл
-переносить на GPU (NumPy/CuPy/TensorFlow).
+Benchmark to identify components of PyAgentProlog that are worth
+moving to the GPU (NumPy/CuPy/TensorFlow).
 
-Классификация кандидатов:
-    GPU_GOOD      — регулярные батчевые операции, большой объём данных
-    GPU_MAYBE     — векторизуемо, но объём может быть мал
-    GPU_BAD       — нерегулярные / последовательные / мелкие операции
-    CPU_ONLY      — символьные вычисления без SIMD-потенциала
+Classification of candidates:
+    GPU_GOOD      — regular batched operations with large data volumes
+    GPU_MAYBE     — vectorizable, but the volume may be small
+    GPU_BAD       — irregular / sequential / tiny operations
+    CPU_ONLY      — symbolic computation without SIMD potential
 
-Патч A (бенчмарк):
-  * Тест [5] "tail_recursion" переименован в "non-tail" и ограничен
-    глубинами (50, 100, 200). Программа `count(N, R)` содержит
-    накопление `R is R1 + 1` после рекурсивного вызова, поэтому TCO
-    не срабатывает и subst растёт линейно с глубиной. Наша реализация
-    subst через dict.copy() даёт O(N²) — при N=1000 это ~18 секунд,
-    при N=5000 — минуты. Тест теперь честно помечен и быстро проходит.
-  * Добавлен тест [5b] "tail_acc" — настоящая хвостовая рекурсия с
-    аккумулятором. После рекурсивного вызова нет других целей, TCO
-    срабатывает, subst не растёт. Ожидается O(N) вместо O(N²).
+Patch A (benchmark):
+  * Test [5] "tail_recursion" was renamed to "non-tail" and limited
+    to depths (50, 100, 200). The program `count(N, R)` contains
+    accumulation `R is R1 + 1` after the recursive call, so TCO
+    does not fire and subst grows linearly with depth. Our subst
+    via dict.copy() gives O(N²) — at N=1000 that is ~18 seconds,
+    at N=5000 — minutes. The test is now honestly labeled and runs fast.
+  * Added test [5b] "tail_acc" — real tail recursion with an
+    accumulator. After the recursive call there are no other goals,
+    TCO fires, subst does not grow. Expected O(N) instead of O(N²).
 
 (c) 2026 Andrey Vorfolomeev
 """
@@ -32,12 +32,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 sys.path.append('d:/BFX/Repositories/')
 
-# Поднимаем лимит рекурсии ДО импорта prolog — некоторые встроенные
-# предикаты (member/length/append) реализованы рекурсивными генераторами.
+# Raise the recursion limit BEFORE importing prolog — some built-in
+# predicates (member/length/append) are implemented as recursive generators.
 sys.setrecursionlimit(100_000)
 
 # ---------------------------------------------------------------------
-# Импорты вашего Prolog
+# Imports of your Prolog
 # ---------------------------------------------------------------------
 from prolog.parser import Parser
 from prolog.terms import Term, Variable, Number, Rule  # noqa: F401
@@ -47,7 +47,7 @@ from prolog.predicates import evaluate_expression
 
 
 # =====================================================================
-# Замер времени
+# Timing
 # =====================================================================
 @dataclass
 class BenchmarkResult:
@@ -88,10 +88,10 @@ def bench(name: str, category: str, fn: Callable, *,
 def bench_best_of(name: str, category: str, fn: Callable, *,
                   repeat: int = 5, gpu_verdict: str = "CPU_ONLY",
                   notes: str = "", extra: Optional[Dict] = None) -> BenchmarkResult:
-    """Несколько замеров, берём лучший (минимум времени)."""
+    """Several runs, take the best (minimum time)."""
     times = []
     for _ in range(repeat):
-        fn()  # warmup перед каждым замером
+        fn()  # warmup before each run
         gc.disable()
         t0 = time.perf_counter()
         fn()
@@ -107,7 +107,7 @@ def bench_best_of(name: str, category: str, fn: Callable, *,
 
 
 def take(gen, limit: int = 10_000):
-    """Забирает не более `limit` элементов из генератора."""
+    """Consume at most `limit` elements from the generator."""
     out = []
     for i, x in enumerate(gen):
         out.append(x)
@@ -117,10 +117,10 @@ def take(gen, limit: int = 10_000):
 
 
 # =====================================================================
-# Генераторы данных
+# Data generators
 # =====================================================================
 def make_facts(n: int, arity: int = 2) -> str:
-    """Генерирует n фактов вида factI(vI, vI+1, ...)."""
+    """Generates n facts of the form factI(vI, vI+1, ...)."""
     lines = []
     for i in range(n):
         if arity == 1:
@@ -137,7 +137,7 @@ def make_numbered_facts(n: int, functor: str = "num") -> str:
 
 
 def make_list_term(n: int) -> Term:
-    """Строит Prolog-список [0,1,...,n-1] итеративно (без рекурсии)."""
+    """Builds a Prolog list [0,1,...,n-1] iteratively (no recursion)."""
     lst = Term("[]")
     for i in reversed(range(n)):
         lst = Term(".", [Number(i), lst])
@@ -145,7 +145,7 @@ def make_list_term(n: int) -> Term:
 
 
 # =====================================================================
-# Бенчмарки
+# Benchmarks
 # =====================================================================
 class PrologBenchmark:
 
@@ -162,10 +162,10 @@ class PrologBenchmark:
         self._log("  " + str(r))
 
     # -----------------------------------------------------------------
-    # 1. ПАРСИНГ
+    # 1. PARSING
     # -----------------------------------------------------------------
     def test_parsing(self) -> None:
-        self._log("\n[1] Парсинг")
+        self._log("\n[1] Parsing")
 
         small = "parent(ivan, alex). parent(alex, petr)."
         medium = make_facts(200, arity=2)
@@ -178,14 +178,14 @@ class PrologBenchmark:
                       lambda s=src: Parser(s).parse_rules(),
                       repeat=n_iter,
                       gpu_verdict="CPU_ONLY",
-                      notes="regex/tokenizing, нерегулярно")
+                      notes="regex/tokenizing, irregular")
             self._add(r)
 
     # -----------------------------------------------------------------
-    # 2. СТРОГАЯ УНИФИКАЦИЯ АТОМОВ
+    # 2. STRICT ATOM UNIFICATION
     # -----------------------------------------------------------------
     def test_unification_atoms(self) -> None:
-        self._log("\n[2] Унификация атомов")
+        self._log("\n[2] Atom unification")
         n_pairs = 5000
         pairs = [(Term(f"a{i}"), Term(f"a{i}")) for i in range(n_pairs)]
         pairs += [(Term(f"a{i}"), Term(f"b{i}")) for i in range(n_pairs)]
@@ -197,15 +197,15 @@ class PrologBenchmark:
         r = bench_best_of("unify_atoms_pairs", "unify", run,
                           repeat=5,
                           gpu_verdict="GPU_MAYBE",
-                          notes="батчевое сравнение атомов тривиально векторизуемо")
+                          notes="batched atom comparison is trivially vectorizable")
         r.extra["pairs"] = len(pairs)
         self._add(r)
 
     # -----------------------------------------------------------------
-    # 3. УНИФИКАЦИЯ СТРУКТУРНЫХ ТЕРМОВ
+    # 3. UNIFICATION OF STRUCTURAL TERMS
     # -----------------------------------------------------------------
     def test_unification_structures(self) -> None:
-        self._log("\n[3] Унификация структурных термов")
+        self._log("\n[3] Unification of structural terms")
 
         def make_tree(depth: int):
             if depth == 0:
@@ -222,7 +222,7 @@ class PrologBenchmark:
         r = bench_best_of("unify_struct_deep", "unify", run_one,
                           repeat=5,
                           gpu_verdict="GPU_BAD",
-                          notes="глубокая рекурсия, нерегулярно")
+                          notes="deep recursion, irregular")
         self._add(r)
 
         batch = [Term("pair", [Number(i), Number(i + 1)]) for i in range(2000)]
@@ -235,15 +235,15 @@ class PrologBenchmark:
         r = bench_best_of("unify_struct_batch", "unify", run_batch,
                           repeat=5,
                           gpu_verdict="GPU_GOOD",
-                          notes="одинаковая форма — идеально для SIMD")
+                          notes="uniform shape — ideal for SIMD")
         r.extra["batch"] = len(batch)
         self._add(r)
 
     # -----------------------------------------------------------------
-    # 4. ИНДЕКСАЦИЯ ПРАВИЛ
+    # 4. RULE INDEXING
     # -----------------------------------------------------------------
     def test_rule_lookup(self) -> None:
-        self._log("\n[4] Индексация правил / поиск кандидатов")
+        self._log("\n[4] Rule indexing / candidate lookup")
 
         for n_rules in (100, 1000, 5000):
             src = "\n".join(f"p({i}, v{i})." for i in range(n_rules))
@@ -257,27 +257,27 @@ class PrologBenchmark:
             r = bench_best_of(f"lookup_{n_rules}_rules", "lookup", run,
                               repeat=5,
                               gpu_verdict="GPU_GOOD" if n_rules >= 1000 else "GPU_MAYBE",
-                              notes="хэш-поиск; при больших базах — GPU hash/scatter")
+                              notes="hash lookup; for large bases — GPU hash/scatter")
             r.extra["rules"] = n_rules
             self._add(r)
 
     # -----------------------------------------------------------------
-    # 5. NON-TAIL РЕКУРСИЯ (накопление rest_goals)
+    # 5. NON-TAIL RECURSION (rest_goals accumulates)
     # -----------------------------------------------------------------
     def test_recursive_tail(self) -> None:
-        """НЕ хвостовая рекурсия — так исторически назван тест.
+        """NOT tail recursion — that's how the test was historically named.
 
-        Программа `count(N, R)` содержит накопление `R is R1 + 1` после
-        рекурсивного вызова, поэтому TCO не срабатывает: `rest_goals`
-        растёт с каждым уровнем, и subst тоже. Наша реализация subst
-        через dict.copy() даёт O(N²) на таких программах: count(100)
-        ~200 мс, count(1000) ~18 с, count(5000) — минуты.
+        The program `count(N, R)` contains accumulation `R is R1 + 1` after
+        the recursive call, so TCO does not fire: `rest_goals` grows with
+        each level, and subst does too. Our subst implementation via
+        dict.copy() gives O(N²) on such programs: count(100)
+        ~200 ms, count(1000) ~18 s, count(5000) — minutes.
 
-        Держим глубины (50, 100, 200), чтобы тест завершался за
-        разумное время. Настоящая хвостовая рекурсия измеряется
-        отдельно в test_recursive_tail_true.
+        We keep depths (50, 100, 200) so the test finishes within
+        reasonable time. True tail recursion is measured separately
+        in test_recursive_tail_true.
         """
-        self._log("\n[5] Non-tail рекурсия (rest_goals накапливается)")
+        self._log("\n[5] Non-tail recursion (rest_goals accumulates)")
         for depth in (50, 100, 200):
             src = """
             count(0, 0).
@@ -292,22 +292,22 @@ class PrologBenchmark:
             r = bench_best_of(f"nontail_{depth}", "recursion", run,
                               repeat=3,
                               gpu_verdict="GPU_BAD",
-                              notes="не TCO: после вызова стоит R is R1+1 — O(N²)")
+                              notes="not TCO: R is R1+1 comes after the call — O(N²)")
             r.extra["depth"] = depth
             self._add(r)
 
     # -----------------------------------------------------------------
-    # 5b. TAIL РЕКУРСИЯ (аккумулятор)
+    # 5b. TAIL RECURSION (accumulator)
     # -----------------------------------------------------------------
     def test_recursive_tail_true(self) -> None:
-        """Настоящая хвостовая рекурсия через аккумулятор.
+        """Real tail recursion via an accumulator.
 
-        Рекурсивный вызов `count_acc(N1, A1, R)` — последняя цель в теле.
-        TCO срабатывает (new_depth = frame.depth), стек не растёт, а
-        патч 5.8 (прунинг subst) обрезает subst до переменных, реально
-        используемых в новой цели. Итого O(N) по времени.
+        The recursive call `count_acc(N1, A1, R)` is the last goal in the
+        body. TCO fires (new_depth = frame.depth), the stack does not grow,
+        and patch 5.8 (subst pruning) trims subst to the variables actually
+        used by the new goal. Total is O(N) in time.
         """
-        self._log("\n[5b] Tail рекурсия (аккумулятор, TCO)")
+        self._log("\n[5b] Tail recursion (accumulator, TCO)")
         for depth in (100, 1000, 5000):
             src = """
             count(N, R) :- count_acc(N, 0, R).
@@ -324,15 +324,15 @@ class PrologBenchmark:
             r = bench_best_of(f"tail_acc_{depth}", "recursion", run,
                               repeat=3,
                               gpu_verdict="GPU_BAD",
-                              notes="аккумулятор — TCO срабатывает, subst не растёт")
+                              notes="accumulator — TCO fires, subst does not grow")
             r.extra["depth"] = depth
             self._add(r)
 
     # -----------------------------------------------------------------
-    # 6. НЕХВОСТОВАЯ РЕКУРСИЯ (батч-ветвление)
+    # 6. NON-TAIL RECURSION (batch branching)
     # -----------------------------------------------------------------
     def test_recursive_nontail(self) -> None:
-        self._log("\n[6] Нехвостовая рекурсия (батч-ветвление)")
+        self._log("\n[6] Non-tail recursion (batch branching)")
 
         src = """
         fib(0, 0).
@@ -350,7 +350,7 @@ class PrologBenchmark:
             r = bench_best_of(f"fib_{n}", "recursion", run,
                               repeat=3,
                               gpu_verdict="GPU_MAYBE",
-                              notes="дерево ветвлений — потенциально батчево")
+                              notes="branching tree — potentially batchable")
             r.extra["n"] = n
             self._add(r)
 
@@ -362,7 +362,7 @@ class PrologBenchmark:
 
         for size in (100, 500, 1000):
             lst = make_list_term(size)
-            elem = Number(size - 1)  # худший случай — в конце
+            elem = Number(size - 1)  # worst case — at the end
             goal = Term("member", [elem, lst])
             db = Database([])
 
@@ -373,11 +373,11 @@ class PrologBenchmark:
                 r = bench_best_of(f"member_{size}", "builtin", run,
                                   repeat=3,
                                   gpu_verdict="GPU_GOOD",
-                                  notes="линейный поиск — идеально для GPU")
+                                  notes="linear search — ideal for GPU")
                 r.extra["size"] = size
                 self._add(r)
             except RecursionError as e:
-                self._log(f"  member_{size:<6} ПРОПУЩЕН: RecursionError: {e}")
+                self._log(f"  member_{size:<6} SKIPPED: RecursionError: {e}")
 
     # -----------------------------------------------------------------
     # 8. append/3
@@ -385,8 +385,8 @@ class PrologBenchmark:
     def test_builtin_append(self) -> None:
         self._log("\n[8] append/3")
 
-        # append(A, B, C) с ground A, B и свободным C даёт |A|+1 решений.
-        # Ограничиваем размер списков — реализация O(N²) и тяжело масштабируется.
+        # append(A, B, C) with ground A, B and a free C yields |A|+1 solutions.
+        # Keep the list sizes modest — the implementation is O(N²) and scales poorly.
         for size, sol_cap in ((10, 100), (30, 200), (50, 200)):
             a = make_list_term(size)
             b = make_list_term(size)
@@ -401,11 +401,11 @@ class PrologBenchmark:
                 r = bench_best_of(f"append_{size}+{size}", "builtin", run,
                                   repeat=3,
                                   gpu_verdict="GPU_MAYBE",
-                                  notes=f"перебор до {sol_cap} решений")
+                                  notes=f"enumeration up to {sol_cap} solutions")
                 r.extra["size"] = size
                 self._add(r)
             except RecursionError as e:
-                self._log(f"  append_{size}+{size:<6} ПРОПУЩЕН: RecursionError: {e}")
+                self._log(f"  append_{size}+{size:<6} SKIPPED: RecursionError: {e}")
 
     # -----------------------------------------------------------------
     # 9. length/2
@@ -413,8 +413,8 @@ class PrologBenchmark:
     def test_builtin_length(self) -> None:
         self._log("\n[9] length/2")
 
-        # Реализация length рекурсивна и O(N²) из-за subst.copy/substitute
-        # на каждом уровне — держим размеры скромными.
+        # The length implementation is recursive and O(N²) due to
+        # subst.copy/substitute at each level — keep sizes modest.
         for size in (100, 200, 300):
             lst = make_list_term(size)
             n = Variable("N")
@@ -428,17 +428,17 @@ class PrologBenchmark:
                 r = bench_best_of(f"length_{size}", "builtin", run,
                                   repeat=3,
                                   gpu_verdict="GPU_MAYBE",
-                                  notes="O(N²) из-за substitute — сначала алгоритм, потом GPU")
+                                  notes="O(N²) due to substitute — algorithm first, then GPU")
                 r.extra["size"] = size
                 self._add(r)
             except RecursionError as e:
-                self._log(f"  length_{size:<6} ПРОПУЩЕН: RecursionError: {e}")
+                self._log(f"  length_{size:<6} SKIPPED: RecursionError: {e}")
 
     # -----------------------------------------------------------------
-    # 10. АРИФМЕТИКА
+    # 10. ARITHMETIC
     # -----------------------------------------------------------------
     def test_arithmetic(self) -> None:
-        self._log("\n[10] Арифметика")
+        self._log("\n[10] Arithmetic")
 
         def make_expr(n_ops: int) -> Term:
             expr = Number(1)
@@ -457,7 +457,7 @@ class PrologBenchmark:
             r = bench_best_of(f"arith_{n_ops}ops", "arith", run,
                               repeat=5,
                               gpu_verdict="GPU_GOOD",
-                              notes="регулярное дерево — компилируется в tf.Graph")
+                              notes="regular tree — compiles into tf.Graph")
             r.extra["ops"] = n_ops
             self._add(r)
 
@@ -470,7 +470,7 @@ class PrologBenchmark:
         r = bench_best_of("arith_batch_5000", "arith", run_batch,
                           repeat=5,
                           gpu_verdict="GPU_GOOD",
-                          notes="5000 независимых выражений — батч")
+                          notes="5000 independent expressions — a batch")
         self._add(r)
 
     # -----------------------------------------------------------------
@@ -490,15 +490,15 @@ class PrologBenchmark:
             r = bench_best_of(f"findall_{n}", "builtin", run,
                               repeat=3,
                               gpu_verdict="GPU_GOOD",
-                              notes="сбор всех решений — батчевая агрегация")
+                              notes="collecting all solutions — batch aggregation")
             r.extra["n"] = n
             self._add(r)
 
     # -----------------------------------------------------------------
-    # 12. СЕМАНТИЧЕСКАЯ УНИФИКАЦИЯ
+    # 12. SEMANTIC UNIFICATION
     # -----------------------------------------------------------------
     def test_semantic_unification(self) -> None:
-        self._log("\n[12] Семантическая унификация (без реальной модели)")
+        self._log("\n[12] Semantic unification (without a real model)")
 
         import numpy as np
 
@@ -509,7 +509,7 @@ class PrologBenchmark:
         try:
             from prolog.embedding_unify import EmbeddingUnifier
         except Exception as e:
-            self._log(f"  пропуск: {e}")
+            self._log(f"  skipping: {e}")
             return
 
         unifier = EmbeddingUnifier(fake_embed, threshold=0.8)
@@ -524,7 +524,7 @@ class PrologBenchmark:
         r = bench_best_of("semantic_match_2000pairs", "semantic", run_unify,
                           repeat=3,
                           gpu_verdict="GPU_GOOD",
-                          notes="косинус 2000×384 — прямая матричная операция")
+                          notes="cosine 2000×384 — a direct matrix operation")
         r.extra["pairs"] = len(pairs)
         self._add(r)
 
@@ -536,14 +536,14 @@ class PrologBenchmark:
         r = bench_best_of("cosine_matrix_2000x384", "semantic", run_cos,
                           repeat=5,
                           gpu_verdict="GPU_GOOD",
-                          notes="чистый BLAS — на GPU 10-50× быстрее")
+                          notes="pure BLAS — 10-50× faster on GPU")
         self._add(r)
 
     # -----------------------------------------------------------------
-    # 13. БОЛЬШАЯ БАЗА ФАКТОВ
+    # 13. LARGE FACT BASE
     # -----------------------------------------------------------------
     def test_large_fact_base(self) -> None:
-        self._log("\n[13] Большая база фактов")
+        self._log("\n[13] Large fact base")
 
         for n in (500, 2000, 8000):
             src = make_numbered_facts(n, "num")
@@ -556,12 +556,12 @@ class PrologBenchmark:
             r = bench_best_of(f"query_fact_{n}", "lookup", run,
                               repeat=3,
                               gpu_verdict="GPU_GOOD" if n >= 2000 else "GPU_MAYBE",
-                              notes="поиск по индексу; GPU hash/scatter")
+                              notes="index lookup; GPU hash/scatter")
             r.extra["facts"] = n
             self._add(r)
 
     # -----------------------------------------------------------------
-    # Запуск всего
+    # Run everything
     # -----------------------------------------------------------------
     def run_all(self) -> List[BenchmarkResult]:
         tests = [
@@ -569,8 +569,8 @@ class PrologBenchmark:
             self.test_unification_atoms,
             self.test_unification_structures,
             self.test_rule_lookup,
-            self.test_recursive_tail,        # non-tail (переименован)
-            self.test_recursive_tail_true,   # настоящая TCO
+            self.test_recursive_tail,        # non-tail (renamed)
+            self.test_recursive_tail_true,   # real TCO
             self.test_recursive_nontail,
             self.test_builtin_member,
             self.test_builtin_append,
@@ -584,16 +584,16 @@ class PrologBenchmark:
             try:
                 t()
             except Exception as e:
-                self._log(f"\n!! Тест {t.__name__} упал: "
+                self._log(f"\n!! Test {t.__name__} crashed: "
                           f"{type(e).__name__}: {e}")
         return self.results
 
     # -----------------------------------------------------------------
-    # Отчёт
+    # Report
     # -----------------------------------------------------------------
     def report(self) -> None:
         print("\n" + "=" * 100)
-        print("ОТЧЁТ: кандидаты на GPU-ускорение")
+        print("REPORT: GPU-acceleration candidates")
         print("=" * 100)
 
         by_verdict: Dict[str, List[BenchmarkResult]] = {}
@@ -602,10 +602,10 @@ class PrologBenchmark:
 
         order = ["GPU_GOOD", "GPU_MAYBE", "GPU_BAD", "CPU_ONLY"]
         titles = {
-            "GPU_GOOD":  "СИЛЬНЫЕ КАНДИДАТЫ (ожидается 5-50x)",
-            "GPU_MAYBE": "ПОТЕНЦИАЛЬНЫЕ (зависит от объёма данных)",
-            "GPU_BAD":   "СЛАБЫЕ (нерегулярные, но возможны батчи)",
-            "CPU_ONLY":  "НЕ КАНДИДАТЫ (символьная/последовательная логика)",
+            "GPU_GOOD":  "STRONG CANDIDATES (5-50x expected)",
+            "GPU_MAYBE": "POTENTIAL (depends on data volume)",
+            "GPU_BAD":   "WEAK (irregular, but batches may be possible)",
+            "CPU_ONLY":  "NOT CANDIDATES (symbolic/sequential logic)",
         }
 
         for v in order:
@@ -618,7 +618,7 @@ class PrologBenchmark:
                 print(f"  {r}")
 
         print("\n" + "=" * 100)
-        print("ТОП-10 самых «горячих» операций (по убыванию времени на вызов):")
+        print("TOP-10 hottest operations (sorted by decreasing per-call time):")
         print("=" * 100)
         for r in sorted(self.results, key=lambda x: -x.per_call_us)[:10]:
             print(f"  {r.name:<32} {r.per_call_us:>12.2f} µs   {r.gpu_verdict}")
@@ -627,7 +627,7 @@ class PrologBenchmark:
                          if r.gpu_verdict == "GPU_GOOD")
         total_all = sum(r.per_call_us for r in self.results)
         if total_all > 0:
-            print(f"\nДоля времени, приходящаяся на GPU_GOOD-операции: "
+            print(f"\nShare of time spent in GPU_GOOD operations: "
                   f"{100 * total_good / total_all:.1f}%")
 
 

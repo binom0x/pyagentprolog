@@ -1,24 +1,24 @@
 """ PyAgentProlog
 
-Интерпретатор с поддержкой трассировки, отсечения и оптимизацией хвостовых вызовов
+Interpreter with tracing, cut, and tail-call optimization support.
 
-Патч 5.4: if-then-else через _IfThenBarrier без вложенного _solve.
-Патч 5.5: убран кэш _rename_variables (ломал TCO).
-Патч 5.6: исправлен баг константного индекса (Variable как ключ).
-Патч 5.7: убраны избыточные subst.copy() в hot-path.
-Патч 5.8 (этот файл): обрезка subst на каждом применении правила.
-  Перед созданием body_frame вызывается _prune_subst_to_goals:
-  остаются только связки для переменных, достижимых из новых целей
-  и из «якорных» переменных (query vars + ключи initial_subst).
-  Цепочки v -> w -> x -> 42 схлопываются в v -> 42. Это делает subst
-  ограниченным по размеру независимо от глубины рекурсии, поэтому
-  subst.copy() внутри unify становится O(1) вместо O(N). Суммарное
-  время хвостовой и нехвостовой рекурсии падает с O(N²) до O(N).
-  alt_frame использует исходный frame.subst — обрезка его не касается.
+Patch 5.4: if-then-else via _IfThenBarrier without nested _solve.
+Patch 5.5: removed _rename_variables cache (broke TCO).
+Patch 5.6: fixed the constant-index bug (Variable as a key).
+Patch 5.7: removed redundant subst.copy() in the hot path.
+Patch 5.8 (this file): subst pruning on every rule application.
+  Before creating body_frame, _prune_subst_to_goals is called:
+  only bindings for variables reachable from the new goals
+  and from the "anchor" variables (query vars + keys of initial_subst)
+  are kept. Chains v -> w -> x -> 42 are collapsed into v -> 42. This makes
+  subst bounded in size regardless of recursion depth, so
+  subst.copy() inside unify becomes O(1) instead of O(N). Total
+  time of tail and non-tail recursion drops from O(N²) to O(N).
+  alt_frame uses the original frame.subst — pruning does not touch it.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 from typing import Generator, Dict, List, Optional, Tuple, Any, Iterator
@@ -35,7 +35,7 @@ def debug_print(*args, **kwargs):
 
 
 class _IfThenBarrier:
-    """Состояние конструкции `(Cond -> Then ; Else)` (или `Cond -> Then`)."""
+    """State of the `(Cond -> Then ; Else)` construct (or `Cond -> Then`)."""
 
     __slots__ = ('c_id', 'then_goal', 'rest_goals', 'parent_cut_id',
                  'parent_depth', 'parent_ifthen_meta', 'else_frame')
@@ -52,7 +52,7 @@ class _IfThenBarrier:
 
 
 class Frame:
-    """Кадр стека для итеративного поиска."""
+    """Stack frame for iterative search."""
     __slots__ = ('goals', 'subst', 'depth', 'rule_index', 'total_rules',
                  'tail', 'trace_step', 'cut_id', 'disj_step', 'ifthen_meta')
 
@@ -71,7 +71,7 @@ class Frame:
 
 
 class BuiltinRegistry:
-    """Регистр встроенных предикатов с поддержкой разной арности."""
+    """Registry of built-in predicates with arity support."""
 
     __slots__ = ('builtins', 'custom_predicates')
 
@@ -123,14 +123,14 @@ class BuiltinRegistry:
         if predicate:
             return predicate.execute(goal, database, subst, depth)
         if goal.functor in self.builtins:
-            print(f"[WARNING] Неверная арность для предиката {goal.functor}: "
-                  f"ожидалась одна из {list(self.builtins[goal.functor].keys())}, "
-                  f"получено {len(goal.arguments)}")
+            print(f"[WARNING] Wrong arity for predicate {goal.functor}: "
+                  f"expected one of {list(self.builtins[goal.functor].keys())}, "
+                  f"got {len(goal.arguments)}")
         return []
 
 
 class Database:
-    """База знаний Prolog с поддержкой трассировки, индексацией правил и оптимизацией хвостовых вызовов."""
+    """Prolog knowledge base with tracing, rule indexing, and tail-call optimization support."""
 
     __slots__ = ('rules', 'builtins', 'tracer', 'context', 'rule_index',
                  '_cut_counter', '_renamed_cache', '_rename_nonce')
@@ -147,8 +147,8 @@ class Database:
         self.build_rule_index()
 
     # ------------------------------------------------------------------
-    # Константный индекс правил по первому аргументу.
-    # Патч 5.6: Variable — подкласс Term, но НЕ константа.
+    # Constant index of rules by the first argument.
+    # Patch 5.6: Variable is a subclass of Term but is NOT a constant.
     # ------------------------------------------------------------------
     @staticmethod
     def _is_const_first_arg(term):
@@ -229,24 +229,24 @@ class Database:
                 self.tracer.end_goal(True)
 
     # ------------------------------------------------------------------
-    # ПАТЧ 5.8: обрезка subst до релевантных переменных.
+    # PATCH 5.8: pruning subst to relevant variables.
     # ------------------------------------------------------------------
     def _prune_subst_to_goals(self, subst, goals, keep_vars):
-        """Возвращает новый dict с bindings для переменных, достижимых
-        из `goals` или из `keep_vars`, с разрешёнными цепочками.
+        """Returns a new dict with bindings for variables reachable
+        from `goals` or from `keep_vars`, with chains resolved.
 
-        Цепочка `v -> w -> x -> 42` в исходном subst, если v достижима,
-        становится в результате `v -> 42`. Промежуточные w, x не
-        сохраняются, если сами не достижимы из seed.
+        A chain `v -> w -> x -> 42` in the original subst, if v is reachable,
+        becomes `v -> 42` in the result. Intermediate w, x are not
+        kept unless they are reachable from the seed themselves.
 
-        Гарантия: любая переменная, встречающаяся в `goals`, а также
-        каждая переменная из `keep_vars`, получит свою (разрешённую)
-        связку, если она была в исходном subst.
+        Guarantee: any variable occurring in `goals`, as well as
+        every variable from `keep_vars`, gets its (resolved)
+        binding if it was in the original subst.
         """
         if not subst:
             return {}
 
-        # 1) Seed = все Variable из goals + keep_vars.
+        # 1) Seed = all Variables from goals + keep_vars.
         seed = set()
         stack = list(goals)
         while stack:
@@ -260,7 +260,7 @@ class Database:
             if isinstance(v, Variable) and v.name != "_":
                 seed.add(v)
 
-        # 2) Замыкание с разрешением цепочек и защитой от циклов.
+        # 2) Closure with chain resolution and cycle protection.
         pruned = {}
         work = list(seed)
         while work:
@@ -270,17 +270,17 @@ class Database:
             if v not in subst:
                 continue
             val = subst[v]
-            # Разрешаем цепочку v -> w -> ... -> final.
+            # Resolve the chain v -> w -> ... -> final.
             chain_seen = {v}
             while isinstance(val, Variable) and val in subst:
                 if val in chain_seen:
-                    # Цикл v -> ... -> v: обрываем, чтобы не зациклиться.
+                    # Cycle v -> ... -> v: break to avoid looping.
                     break
                 chain_seen.add(val)
                 val = subst[val]
             pruned[v] = val
-            # Обрабатываем переменные внутри val (если val — Term или
-            # осталась Variable без связки).
+            # Process variables inside val (if val is a Term or
+            # remains a Variable without a binding).
             inner = [val]
             while inner:
                 t = inner.pop()
@@ -292,16 +292,16 @@ class Database:
         return pruned
 
     # ------------------------------------------------------------------
-    # Основной итеративный решатель
+    # Main iterative solver
     # ------------------------------------------------------------------
     def _solve_iterative(self, initial_goal: Term, initial_subst: Dict, depth: int, with_trace: bool):
-        debug_print(f"\n=== Начало поиска для цели: {initial_goal} "
-                    f"с подстановкой {initial_subst}, глубина {depth} ===")
+        debug_print(f"\n=== Beginning search for goal: {initial_goal} "
+                    f"with substitution {initial_subst}, depth {depth} ===")
 
-        # --- Патч 5.8: якорные переменные для pruning ---
-        # Это переменные, которые обязаны сохраниться в subst в любой
-        # момент, потому что вызывающая сторона ожидает их в yield'ах.
-        # = все Variable из initial_goal + все ключи initial_subst.
+        # --- Patch 5.8: anchor variables for pruning ---
+        # These are variables that must be preserved in subst at any
+        # moment, because the caller expects them in the yields.
+        # = all Variables from initial_goal + all keys of initial_subst.
         _qv_seed = set()
         _qv_stack = [initial_goal]
         while _qv_stack:
@@ -334,13 +334,13 @@ class Database:
         while stack:
             frame = stack[-1]
 
-            debug_print(f"\n--- Текущий кадр (глубина {frame.depth}) ---")
+            debug_print(f"\n--- Current frame (depth {frame.depth}) ---")
             debug_print(f"  goals: {[str(g) for g in frame.goals]}")
             debug_print(f"  subst: {frame.subst}")
             debug_print(f"  rule_index: {frame.rule_index}, total_rules: {frame.total_rules}")
 
             # ------------------------------------------------------------------
-            # Все цели решены
+            # All goals solved
             # ------------------------------------------------------------------
             if not frame.goals:
                 if (frame.ifthen_meta is not None
@@ -378,7 +378,7 @@ class Database:
                     stack.append(new_frame)
                     continue
 
-                debug_print("  Все цели решены, возвращаем решение")
+                debug_print("  All goals solved, yielding a solution")
                 self._close_successful_steps(stack, with_trace)
                 stack.pop()
                 if with_trace and frame.trace_step:
@@ -397,11 +397,11 @@ class Database:
             current_goal = frame.goals[0]
             rest_goals = frame.goals[1:]
 
-            debug_print(f"  Текущая цель: {current_goal}")
+            debug_print(f"  Current goal: {current_goal}")
 
-            # --- Встроенные предикаты ---
+            # --- Built-in predicates ---
             if self.builtins.is_builtin(current_goal.functor):
-                debug_print(f"  Встроенный предикат: {current_goal.functor}")
+                debug_print(f"  Built-in predicate: {current_goal.functor}")
                 if with_trace:
                     builtin_step = self.tracer.start_goal(
                         str(current_goal.substitute(frame.subst)), frame.depth)
@@ -413,7 +413,7 @@ class Database:
                     result = self.builtins.execute(current_goal, self,
                                                    frame.subst, frame.depth)
                 except CutException as e:
-                    debug_print("  Отсечение (!) сработало")
+                    debug_print("  Cut (!) fired")
                     if with_trace and builtin_step:
                         builtin_step.success = True
                         self.tracer.end_goal(True)
@@ -433,7 +433,7 @@ class Database:
                     frame.subst = e.subst
                     continue
                 except RepeatException as e:
-                    debug_print("  RepeatException: добавляем альтернативный кадр")
+                    debug_print("  RepeatException: adding alternative frame")
                     stack.pop()
                     continue_frame = Frame(rest_goals, e.subst, frame.depth,
                                            0, 0, frame.tail, None,
@@ -450,7 +450,7 @@ class Database:
                         self.tracer.end_goal(True)
                     continue
                 except PrologError:
-                    debug_print("  Ошибка выполнения встроенного предиката")
+                    debug_print("  Execution error in built-in predicate")
                     if with_trace and builtin_step:
                         builtin_step.success = False
                         self.tracer.end_goal(False)
@@ -476,7 +476,7 @@ class Database:
                             self.tracer.end_goal(True)
                         continue
                     else:
-                        debug_print("  Нет решений для встроенного предиката, возврат")
+                        debug_print("  No solutions for built-in predicate, backtracking")
                         if with_trace and builtin_step:
                             builtin_step.success = False
                             self.tracer.end_goal(False)
@@ -487,14 +487,14 @@ class Database:
                         it = iter(result)
                         first_subst = next(it)
                     except StopIteration:
-                        debug_print("  Нет решений для встроенного предиката (генератор пуст), возврат")
+                        debug_print("  No solutions for built-in predicate (empty generator), backtracking")
                         if with_trace and builtin_step:
                             builtin_step.success = False
                             self.tracer.end_goal(False)
                         stack.pop()
                         continue
                     except CutException as e:
-                        debug_print("  Отсечение (!) сработало внутри генератора")
+                        debug_print("  Cut (!) fired inside the generator")
                         if with_trace and builtin_step:
                             builtin_step.success = True
                             self.tracer.end_goal(True)
@@ -514,7 +514,7 @@ class Database:
                         frame.subst = e.subst
                         continue
                     except RepeatException as e:
-                        debug_print("  RepeatException внутри генератора")
+                        debug_print("  RepeatException inside generator")
                         stack.pop()
                         continue_frame = Frame(rest_goals, e.subst, frame.depth,
                                                0, 0, frame.tail, None,
@@ -531,7 +531,7 @@ class Database:
                             self.tracer.end_goal(True)
                         continue
                     except PrologError:
-                        debug_print("  PrologError при итерации генератора -> fail ветки")
+                        debug_print("  PrologError while iterating generator -> fail branch")
                         if with_trace and builtin_step:
                             builtin_step.success = False
                             self.tracer.end_goal(False)
@@ -540,7 +540,7 @@ class Database:
                     except Exception as e:
                         import traceback
                         debug_print(
-                            f"  Неожиданный сбой при итерации генератора: "
+                            f"  Unexpected failure while iterating generator: "
                             f"{type(e).__name__}: {e}"
                         )
                         print(f"[_solve_iterative] unexpected {type(e).__name__} "
@@ -567,16 +567,16 @@ class Database:
                         self.tracer.end_goal(True)
                     continue
 
-            # --- Конъюнкция ---
+            # --- Conjunction ---
             if (isinstance(current_goal, Term) and current_goal.functor == ','
                     and len(current_goal.arguments) == 2):
-                debug_print("  Обработка конъюнкции ','")
+                debug_print("  Handling conjunction ','")
                 flat_goals = self._flatten_conjunction(current_goal)
-                debug_print(f"    Развёрнутая конъюнкция: {[str(g) for g in flat_goals]}")
+                debug_print(f"    Flattened conjunction: {[str(g) for g in flat_goals]}")
                 frame.goals = flat_goals + rest_goals
                 continue
 
-            # --- Дизъюнкция ---
+            # --- Disjunction ---
             if (isinstance(current_goal, Term) and current_goal.functor == ';'
                     and len(current_goal.arguments) == 2):
                 left, right = current_goal.arguments
@@ -584,7 +584,7 @@ class Database:
                 # ---- if-then-else ----
                 if (isinstance(left, Term) and left.functor == '->'
                         and len(left.arguments) == 2):
-                    debug_print("  Обработка (Cond -> Then ; Else)")
+                    debug_print("  Handling (Cond -> Then ; Else)")
                     cond, then = left.arguments
 
                     cond_cut_id = self._cut_counter
@@ -629,8 +629,8 @@ class Database:
                     stack.append(cond_frame)
                     continue
 
-                # ---- Обычная дизъюнкция ----
-                debug_print("  Обработка дизъюнкции ';'")
+                # ---- Ordinary disjunction ----
+                debug_print("  Handling disjunction ';'")
                 disj_step = None
                 if with_trace:
                     disj_step = self.tracer.start_goal(
@@ -649,13 +649,13 @@ class Database:
                 stack.pop()
                 stack.append(right_frame)
                 stack.append(left_frame)
-                debug_print("    Добавлены два альтернативных кадра")
+                debug_print("    Added two alternative frames")
                 continue
 
-            # --- Standalone `Cond -> Then` (без `;`) ---
+            # --- Standalone `Cond -> Then` (without `;`) ---
             if (isinstance(current_goal, Term) and current_goal.functor == '->'
                     and len(current_goal.arguments) == 2):
-                debug_print("  Обработка условного оператора '->' (без ; )")
+                debug_print("  Handling conditional operator '->' (without ;)")
                 cond, then = current_goal.arguments
 
                 cond_cut_id = self._cut_counter
@@ -700,11 +700,11 @@ class Database:
                 stack.append(cond_frame)
                 continue
 
-            # --- Пользовательский предикат ---
+            # --- User-defined predicate ---
             rules = self.get_candidate_rules(current_goal)
-            debug_print(f"  Найдено правил для {current_goal.functor}: {len(rules)}")
+            debug_print(f"  Rules found for {current_goal.functor}: {len(rules)}")
             if frame.rule_index >= len(rules):
-                debug_print(f"  Все правила перебраны, неудача")
+                debug_print(f"  All rules tried, failure")
                 if with_trace and frame.trace_step and not frame.trace_step.success:
                     frame.trace_step.success = False
                     self.tracer.end_goal(False)
@@ -714,23 +714,23 @@ class Database:
             if frame.cut_id is None:
                 frame.cut_id = self._cut_counter
                 self._cut_counter += 1
-                debug_print(f"  Создан новый cut_id: {frame.cut_id}")
+                debug_print(f"  New cut_id created: {frame.cut_id}")
 
             rule = rules[frame.rule_index]
-            debug_print(f"  Пробуем правило #{frame.rule_index+1}: {rule}")
+            debug_print(f"  Trying rule #{frame.rule_index+1}: {rule}")
 
             renamed_rule = self._rename_variables(rule, frame.depth)
-            debug_print(f"    Переименованное правило: {renamed_rule}")
+            debug_print(f"    Renamed rule: {renamed_rule}")
 
             new_subst = current_goal.unify(renamed_rule.head,
                                            frame.subst,
                                            depth=frame.depth)
             if new_subst is None:
-                debug_print("    Унификация головы не удалась")
+                debug_print("    Head unification failed")
                 frame.rule_index += 1
                 continue
 
-            debug_print(f"    Унификация успешна")
+            debug_print(f"    Unification succeeded")
 
             trace_step = None
             if with_trace:
@@ -751,42 +751,43 @@ class Database:
                               else [body])
 
             new_goals = body_goals + rest_goals
-            debug_print(f"    Новые цели: {[str(g) for g in new_goals]}")
+            debug_print(f"    New goals: {[str(g) for g in new_goals]}")
 
             if len(rest_goals) == 0:
                 new_depth = frame.depth
-                debug_print("    Хвостовой вызов, глубина не увеличивается")
+                debug_print("    Tail call, depth not increased")
             else:
                 new_depth = frame.depth + 1
-                debug_print("    Не хвостовой вызов, глубина увеличивается")
+                debug_print("    Non-tail call, depth increased")
 
-            # --- Патч 5.8: обрезка subst ---
-            # new_subst содержит все накопленные связки, но для нового
-            # кадра нужны только те, что достижимы из new_goals плюс
-            # якорные query_vars. Всё остальное — мёртвый груз из
-            # предыдущих итераций рекурсии. Без этой обрезки subst растёт
-            # линейно с глубиной, а unify копирует его на каждом шаге —
-            # итого O(N²).
+            # --- Patch 5.8: subst pruning ---
+            # new_subst contains all accumulated bindings, but for the new
+            # frame only those reachable from new_goals plus anchor
+            # query_vars are needed. Everything else is dead weight from
+            # previous recursion iterations. Without this pruning, subst grows
+            # linearly with depth, and unify copies it at each step —
+            # yielding O(N²).
             #
-            # alt_frame (если есть альтернативные правила) получит
-            # исходный frame.subst, а не обрезанный — это нормально,
-            # потому что alt_frame исполняет другой набор правил и
-            # требует полный контекст своего уровня.
+            # alt_frame (if there are alternative rules) will receive
+            # the original frame.subst, not the pruned one — that is fine,
+            # because alt_frame executes a different set of rules and
+            # requires the full context of its level.
             
             #pruned_subst = self._prune_subst_to_goals(new_subst, new_goals, query_vars)
 
-            # Патч 5.9: если мы внутри Cond if-then-else, то переменные,
-            # привязанные в Cond, могут использоваться в Then/Else ветках.
-            # Эти ветки не видны из Cond body, поэтому надо явно положить
-            # их в seed для pruning. Иначе ObsX/ObsY (и подобные) теряют
-            # связку, и Then-ветка не сможет их разыменовать — что и
-            # приводило к «decide_move -> None» при наличии препятствия.
+            # Patch 5.9: if we are inside a Cond if-then-else, the variables
+            # bound in Cond may be used in the Then/Else branches.
+            # These branches are not visible from the Cond body, so they
+            # must be explicitly added to the seed for pruning. Otherwise
+            # ObsX/ObsY (and similar) lose their binding, and the Then branch
+            # cannot dereference them — which led to "decide_move -> None"
+            # in the presence of an obstacle.
             extra_goals = []
             fm = frame.ifthen_meta
             if fm is not None and frame.cut_id == fm.c_id:
                 extra_goals.append(fm.then_goal)
                 extra_goals.extend(fm.else_frame.goals)
-                # На случай вложенных if-then-else — поднимаемся по цепочке.
+                # In case of nested if-then-else — walk up the chain.
                 while fm.parent_ifthen_meta is not None:
                     fm = fm.parent_ifthen_meta
                     extra_goals.append(fm.then_goal)
@@ -807,7 +808,7 @@ class Database:
             stack.pop()
 
             if frame.rule_index + 1 < len(rules):
-                debug_print(f"    Есть альтернативные правила")
+                debug_print(f"    There are alternative rules")
                 alt_frame = Frame(frame.goals, frame.subst, frame.depth,
                                   frame.rule_index + 1, len(rules),
                                   frame.tail, None, frame.cut_id,
@@ -816,7 +817,7 @@ class Database:
 
             stack.append(body_frame)
 
-        # Конец while — стек пуст
+        # End of while — stack is empty
         if with_trace:
             for disj_step in pending_disj_steps:
                 if not disj_step.success:
@@ -829,9 +830,9 @@ class Database:
                            and self.tracer.step_stack[-1] is root_step):
                         self.tracer.end_goal(found_solution)
 
-        debug_print("=== Поиск завершён ===")
+        debug_print("=== Search completed ===")
 
-    # ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+    # ==================== HELPER METHODS ====================
 
     def _invalidate_cache_for_rule(self, rule):
         if not self._renamed_cache:
@@ -925,8 +926,8 @@ class Database:
                 if term not in var_map:
                     var_map[term] = Variable(f"{term.name}_{nonce}")
                 return var_map[term]
-            if isinstance(term, Number):          # <-- ДО Term
-                return term                        # Number неизменяем
+            if isinstance(term, Number):          # <-- BEFORE Term
+                return term                        # Number is unchanged
             if isinstance(term, Term):
                 new_args = [rename(arg) for arg in term.arguments]
                 return Term(term.functor, new_args)
@@ -950,7 +951,7 @@ class Database:
         extract_from_term(goal, head, subst)
         return unifications
 
-    # ==================== РАБОТА С БАЗОЙ ЗНАНИЙ ====================
+    # ==================== KNOWLEDGE BASE OPERATIONS ====================
 
     def add_rule(self, rule: Rule, at_beginning: bool = False):
         if at_beginning:

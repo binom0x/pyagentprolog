@@ -1,7 +1,7 @@
 #
-# Полный тест оптимизированного интерпретатора Prolog
-# С отладочным выводом ошибок (traceback) и проверкой семантической унификации
-# на РЕАЛЬНОМ эмбеддере (Ollama, nomic-embed-text-v2-moe).
+# Full test of the optimized Prolog interpreter
+# With error traceback output and testing of semantic unification
+# on a REAL embedder (Ollama, nomic-embed-text-v2-moe).
 #
 import os
 import sys
@@ -40,28 +40,28 @@ class TestResult:
 
     def print_summary(self):
         print("\n" + "="*60)
-        print(f"РЕЗУЛЬТАТЫ ТЕСТА: {self.name}")
+        print(f"TEST RESULTS: {self.name}")
         print("="*60)
-        print(f"Пройдено: {len(self.passed)}")
-        print(f"Провалено: {len(self.failed)}")
-        print(f"Ошибок выполнения: {len(self.errors)}")
-        print(f"Пропущено: {len(self.skipped)}")
+        print(f"Passed: {len(self.passed)}")
+        print(f"Failed: {len(self.failed)}")
+        print(f"Execution errors: {len(self.errors)}")
+        print(f"Skipped: {len(self.skipped)}")
         if self.failed:
-            print("\n❌ ПРОВАЛЕННЫЕ ТЕСТЫ:")
+            print("\n❌ FAILED TESTS:")
             for test, reason in self.failed:
                 print(f"  - {test}")
                 if reason:
-                    print(f"    Причина: {reason}")
+                    print(f"    Reason: {reason}")
         if self.errors:
-            print("\n⚠️ ОШИБКИ ВЫПОЛНЕНИЯ:")
+            print("\n⚠️ EXECUTION ERRORS:")
             for test, error in self.errors:
                 print(f"  - {test}: {error}")
         if self.skipped:
-            print("\n⏭️ ПРОПУЩЕННЫЕ ТЕСТЫ:")
+            print("\n⏭️ SKIPPED TESTS:")
             for test, reason in self.skipped:
                 print(f"  - {test}")
                 if reason:
-                    print(f"    Причина: {reason}")
+                    print(f"    Reason: {reason}")
         print("\n" + "="*60)
         return len(self.failed) == 0 and len(self.errors) == 0
 
@@ -72,11 +72,11 @@ def test_parser_basic(result):
         parser = Parser(prog)
         rules = parser.parse_rules()
         assert len(rules) == 2 and str(rules[0]) == "a(1)." and "b(X) :- a(X)." in str(rules[1])
-        result.add_passed("Парсинг фактов и правил")
+        result.add_passed("Parsing facts and rules")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Парсинг", e)
+        result.add_error("Parsing", e)
         return False
 
 
@@ -92,11 +92,11 @@ def test_family_rules(result):
         assert len(sol) == 2
         sol2 = list(db.query(Term("ancestor", [Term("a"), Variable("X")])))
         assert len(sol2) == 4
-        result.add_passed("Рекурсивные правила (ancestor)")
+        result.add_passed("Recursive rules (ancestor)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Семейные правила", e)
+        result.add_error("Family rules", e)
         return False
 
 
@@ -106,7 +106,7 @@ def test_arithmetic(result):
         db = Database(Parser(prog).parse_rules())
         sol = list(db.query(Term("sum", [Variable("X")])))
         assert len(sol) == 1 and str(sol[0]) == "sum(14)"
-        # Сравнения
+        # Comparisons
         assert len(list(db.query(Term(">", [Number(5), Number(3)])))) == 1
         assert len(list(db.query(Term(">", [Number(3), Number(5)])))) == 0
         assert len(list(db.query(Term("<", [Number(3), Number(5)])))) == 1
@@ -114,11 +114,11 @@ def test_arithmetic(result):
         assert len(list(db.query(Term(">=", [Number(5), Number(5)])))) == 1
         assert len(list(db.query(Term("=:=", [Number(5), Number(5)])))) == 1
         assert len(list(db.query(Term(r"=\=", [Number(5), Number(6)])))) == 1
-        result.add_passed("Арифметика и сравнения")
+        result.add_passed("Arithmetic and comparisons")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Арифметика", e)
+        result.add_error("Arithmetic", e)
         return False
 
 
@@ -127,8 +127,8 @@ def test_unification(result):
         db = Database([])
         # X = 5
         sol = list(db.query(Term("=", [Variable("X"), Number(5)])))
-        assert len(sol) == 1, f"Ожидалось 1 решение, получено {len(sol)}"
-        assert "5" in str(sol[0]), f"Строка решения не содержит '5': {sol[0]}"
+        assert len(sol) == 1, f"Expected 1 solution, got {len(sol)}"
+        assert "5" in str(sol[0]), f"Solution string does not contain '5': {sol[0]}"
         # f(X, g(Y)) = f(a, g(b))
         goal = Term("=", [
             Term("f", [Variable("X"), Term("g", [Variable("Y")])]),
@@ -137,11 +137,11 @@ def test_unification(result):
         sol2 = list(db.query(goal))
         assert len(sol2) == 1
         assert "f(a, g(b))" in str(sol2[0])
-        result.add_passed("Унификация")
+        result.add_passed("Unification")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Унификация", e)
+        result.add_error("Unification", e)
         return False
 
 
@@ -155,11 +155,11 @@ def test_lists_basic(result):
         sol2 = list(db.query(Term("=", [lst, pattern])))
         assert len(sol2) == 1
         assert "1" in str(sol2[0]) and "2" in str(sol2[0]) and "3" in str(sol2[0])
-        result.add_passed("Списки (создание и сопоставление)")
+        result.add_passed("Lists (creation and matching)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Списки базовые", e)
+        result.add_error("Lists basic", e)
         return False
 
 
@@ -179,7 +179,7 @@ def test_builtin_io(result):
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Ввод/вывод", e)
+        result.add_error("I/O", e)
         return False
 
 
@@ -204,11 +204,11 @@ def test_control_predicates(result):
         sol_neg = list(db_neg.query(Term("test", [Variable("X")])))
         assert len(sol_neg) == 1
         assert "1" in str(sol_neg[0])
-        result.add_passed("Управляющие предикаты (true, fail, repeat, cut, negation)")
+        result.add_passed("Control predicates (true, fail, repeat, cut, negation)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Управляющие предикаты", e)
+        result.add_error("Control predicates", e)
         return False
 
 
@@ -248,7 +248,7 @@ def test_list_predicates(result):
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Списковые предикаты", e)
+        result.add_error("List predicates", e)
         return False
 
 
@@ -279,11 +279,11 @@ def test_meta_predicates(result):
         # setof
         sol_set = list(db.query(Term("setof", [Variable("Y"), Term("r", [Variable("X"), Variable("Y")]), Variable("L")])))
         assert len(sol_set) == 2
-        result.add_passed("Мета-предикаты (call, once, ignore, forall, findall, bagof, setof)")
+        result.add_passed("Meta-predicates (call, once, ignore, forall, findall, bagof, setof)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Мета-предикаты", e)
+        result.add_error("Meta-predicates", e)
         return False
 
 
@@ -324,11 +324,11 @@ def test_dynamic_db(result):
                 found = True
                 break
         assert found
-        result.add_passed("Динамическая БД (asserta, assertz, retract, retractall, abolish, clause, current_predicate)")
+        result.add_passed("Dynamic DB (asserta, assertz, retract, retractall, abolish, clause, current_predicate)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Динамическая БД", e)
+        result.add_error("Dynamic DB", e)
         return False
 
 
@@ -358,11 +358,11 @@ def test_string_predicates(result):
         assert len(sol7) == 1 and '"42"' in str(sol7[0])
         sol8 = list(db.query(Term("split_string", [Term("'a,b,c'"), Term("','"), Term("''"), Variable("L")])))
         assert len(sol8) == 1 and "a" in str(sol8[0]) and "b" in str(sol8[0]) and "c" in str(sol8[0])
-        result.add_passed("Строковые предикаты")
+        result.add_passed("String predicates")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Строковые предикаты", e)
+        result.add_error("String predicates", e)
         return False
 
 
@@ -379,11 +379,11 @@ def test_term_compare(result):
         sol_cmp = list(db.query(Term("compare", [Variable("R"), Term("a"), Term("b")])))
         assert len(sol_cmp) == 1
         assert "<" in str(sol_cmp[0]) or "R" in str(sol_cmp[0])
-        result.add_passed("Сравнение термов (==, \\==, @<, @>, @=<, @>=, compare)")
+        result.add_passed("Term comparison (==, \\==, @<, @>, @=<, @>=, compare)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Сравнение термов", e)
+        result.add_error("Term comparison", e)
         return False
 
 
@@ -413,11 +413,11 @@ def test_term_constructors(result):
         sol6 = list(db.query(Term("numbervars", [Term("f", [Variable("X"), Variable("Y")]), Number(0), Variable("N")])))
         assert len(sol6) == 1
         assert "$VAR" in str(sol6[0])
-        result.add_passed("Конструкторы/деструкторы термов")
+        result.add_passed("Term constructors/destructors")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Конструкторы термов", e)
+        result.add_error("Term constructors", e)
         return False
 
 
@@ -430,7 +430,7 @@ def test_type_predicates(result):
         assert len(list(db.query(Term("nonvar", [Variable("X")])))) == 0
         assert len(list(db.query(Term("atom", [Term("abc")])))) == 1
         assert len(list(db.query(Term("atom", [Number(123)])))) == 0
-        assert len(list(db.query(Term("atom", [Term("f")])))) == 1  # f/0 – атом
+        assert len(list(db.query(Term("atom", [Term("f")])))) == 1  # f/0 is an atom
         assert len(list(db.query(Term("integer", [Number(42)])))) == 1
         assert len(list(db.query(Term("integer", [Number(3.14)])))) == 0
         assert len(list(db.query(Term("float", [Number(3.14)])))) == 1
@@ -444,11 +444,11 @@ def test_type_predicates(result):
         assert len(list(db.query(Term("ground", [Term("f", [Variable("X")])])))) == 0
         assert len(list(db.query(Term("callable", [Term("f", [Term("a")])])))) == 1
         assert len(list(db.query(Term("callable", [Number(42)])))) == 0
-        result.add_passed("Проверка типов (var, nonvar, atom, integer, float, number, atomic, compound, ground, callable)")
+        result.add_passed("Type checking (var, nonvar, atom, integer, float, number, atomic, compound, ground, callable)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Проверка типов", e)
+        result.add_error("Type checking", e)
         return False
 
 
@@ -486,11 +486,11 @@ def test_conjunction_disjunction(result):
                 if val.isdigit():
                     values.add(int(val))
         assert values == {1,2,3}
-        result.add_passed("Конъюнкция и дизъюнкция")
+        result.add_passed("Conjunction and disjunction")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Конъюнкция/дизъюнкция", e)
+        result.add_error("Conjunction/disjunction", e)
         return False
 
 
@@ -509,11 +509,11 @@ def test_cut_advanced(result):
         assert len(sol2) == 2
         assert "1" in str(sol2[0]) or "1" in str(sol2[1])
         assert "2" in str(sol2[0]) or "2" in str(sol2[1])
-        result.add_passed("Отсечение (продвинутое)")
+        result.add_passed("Cut (advanced)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Отсечение продвинутое", e)
+        result.add_error("Cut advanced", e)
         return False
 
 
@@ -535,11 +535,11 @@ def test_if_then_else(result):
                 if x_str.isdigit() and y_str.isdigit():
                     pairs.add((int(x_str), int(y_str)))
         assert pairs == {(1,2), (1,3)}
-        result.add_passed("Условный оператор ->")
+        result.add_passed("Conditional operator ->")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Условный оператор", e)
+        result.add_error("Conditional operator", e)
         return False
 
 
@@ -553,55 +553,55 @@ def test_negation_complex(result):
         sol = list(db.query(Term("test", [Variable("X")])))
         assert len(sol) == 1
         assert "1" in str(sol[0])
-        result.add_passed("Отрицание (сложное)")
+        result.add_passed("Negation (complex)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Отрицание сложное", e)
+        result.add_error("Negation complex", e)
         return False
 
 
 # ======================================================================
-# СЕМАНТИЧЕСКАЯ УНИФИКАЦИЯ (РЕАЛЬНЫЙ ЭМБЕДДЕР Ollama)
+# SEMANTIC UNIFICATION (REAL Ollama EMBEDDER)
 # ======================================================================
-# Требуется запущенный Ollama и загруженная модель nomic-embed-text-v2-moe.
-# Если Ollama/модель недоступны — соответствующие тесты помечаются skipped,
-# чтобы не ломать прогон в средах без модели.
+# Requires a running Ollama and the loaded nomic-embed-text-v2-moe model.
+# If Ollama/the model is unavailable — the corresponding tests are marked
+# skipped, so the run does not break in environments without the model.
 #
-# Переопределение через переменные окружения:
-#   PROLOG_SEMANTIC_MODEL — имя модели (по умолчанию nomic-embed-text-v2-moe:latest)
-#   PROLOG_OLLAMA_URL     — URL сервера (по умолчанию http://localhost:11434)
+# Override via environment variables:
+#   PROLOG_SEMANTIC_MODEL — model name (default nomic-embed-text-v2-moe:latest)
+#   PROLOG_OLLAMA_URL     — server URL (default http://localhost:11434)
 # ----------------------------------------------------------------------
 
 OLLAMA_MODEL = os.environ.get("PROLOG_SEMANTIC_MODEL", "nomic-embed-text-v2-moe:latest")
 OLLAMA_URL = os.environ.get("PROLOG_OLLAMA_URL", "http://localhost:11434")
 
-_ollama_available = None  # None — не проверяли; True/False — результат
+_ollama_available = None  # None — not checked; True/False — result
 
 
 def _check_ollama():
-    """Проверить, доступны ли Ollama и указанная модель. Результат кэшируется."""
+    """Check whether Ollama and the specified model are available. The result is cached."""
     global _ollama_available
     if _ollama_available is not None:
         return _ollama_available
-    print(f"[SEMANTIC] Проверка Ollama: model='{OLLAMA_MODEL}', url='{OLLAMA_URL}'")
+    print(f"[SEMANTIC] Checking Ollama: model='{OLLAMA_MODEL}', url='{OLLAMA_URL}'")
     try:
         fn = eu.make_ollama_embed_fn(model=OLLAMA_MODEL, base_url=OLLAMA_URL)
         v = fn("ping")
         ok = v is not None and len(v) > 0
         _ollama_available = ok
         if ok:
-            print(f"[SEMANTIC] Ollama доступен, размерность вектора: {len(v)}")
+            print(f"[SEMANTIC] Ollama is available, vector dimension: {len(v)}")
         else:
-            print(f"[SEMANTIC] Ollama вернул пустой вектор — модель '{OLLAMA_MODEL}' загружена?")
+            print(f"[SEMANTIC] Ollama returned an empty vector — is the model '{OLLAMA_MODEL}' loaded?")
     except Exception as e:
-        print(f"[SEMANTIC] Ollama недоступен: {type(e).__name__}: {e}")
+        print(f"[SEMANTIC] Ollama is unavailable: {type(e).__name__}: {e}")
         _ollama_available = False
     return _ollama_available
 
 
 def _install_real_semantic(threshold=0.8):
-    """Включить семантическую унификацию на реальном эмбеддере Ollama."""
+    """Enable semantic unification on the real Ollama embedder."""
     eu.semantic_off()
     return eu.semantic_on(
         threshold=threshold,
@@ -611,7 +611,7 @@ def _install_real_semantic(threshold=0.8):
 
 
 def _uninstall_semantic():
-    """Снять семантическую унификацию и вернуть строгую."""
+    """Remove semantic unification and revert to strict."""
     try:
         eu.semantic_off()
     except Exception:
@@ -619,101 +619,101 @@ def _uninstall_semantic():
 
 
 def test_semantic_status_initially_off(result):
-    """semantic_status/1 возвращает off, если унификация не включена. Ollama не требуется."""
+    """semantic_status/1 returns off if unification is not enabled. Ollama not required."""
     try:
         _uninstall_semantic()
         db = Database([])
         sol = list(db.query(Term("semantic_status", [Variable("S")])))
-        assert len(sol) == 1, f"Ожидалось 1 решение, получено {len(sol)}"
+        assert len(sol) == 1, f"Expected 1 solution, got {len(sol)}"
         s = str(sol[0])
-        assert "off" in s, f"Ожидалось 'off', получено: {s}"
-        result.add_passed("semantic_status/1 -> off (изначально)")
+        assert "off" in s, f"Expected 'off', got: {s}"
+        result.add_passed("semantic_status/1 -> off (initially)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("semantic_status начальный", e)
+        result.add_error("semantic_status initial", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_on_as_goal(result):
-    """Вызов semantic_on/0 как цели включает унификатор (реальный Ollama)."""
+    """Calling semantic_on/0 as a goal enables the unifier (real Ollama)."""
     try:
         if not _check_ollama():
-            result.add_skipped("semantic_on/0 как цель",
-                               f"Ollama/модель недоступны ({OLLAMA_MODEL} @ {OLLAMA_URL})")
+            result.add_skipped("semantic_on/0 as goal",
+                               f"Ollama/model unavailable ({OLLAMA_MODEL} @ {OLLAMA_URL})")
             return True
         _uninstall_semantic()
         db = Database([])
         sol = list(db.query(Term("semantic_on")))
-        assert len(sol) == 1, f"Ожидалось 1 решение для semantic_on, получено {len(sol)}"
+        assert len(sol) == 1, f"Expected 1 solution for semantic_on, got {len(sol)}"
         u = eu.semantic_get_unifier()
-        assert u is not None, "semantic_on/0 не установил унификатор"
-        # Проверяем через semantic_status/1
+        assert u is not None, "semantic_on/0 did not install the unifier"
+        # Verify via semantic_status/1
         sol2 = list(db.query(Term("semantic_status", [Variable("S")])))
         assert len(sol2) == 1
-        assert "on" in str(sol2[0]), f"Ожидалось 'on', получено: {sol2[0]}"
-        result.add_passed("semantic_on/0 как цель (реальный эмбеддер)")
+        assert "on" in str(sol2[0]), f"Expected 'on', got: {sol2[0]}"
+        result.add_passed("semantic_on/0 as goal (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("semantic_on/0 как цель", e)
+        result.add_error("semantic_on/0 as goal", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_on_threshold_as_goal(result):
-    """semantic_on(0.9) как цель — реальный Ollama."""
+    """semantic_on(0.9) as a goal — real Ollama."""
     try:
         if not _check_ollama():
-            result.add_skipped("semantic_on/1 как цель", "Ollama/модель недоступны")
+            result.add_skipped("semantic_on/1 as goal", "Ollama/model unavailable")
             return True
         _uninstall_semantic()
         db = Database([])
         sol = list(db.query(Term("semantic_on", [Number(0.9)])))
         assert len(sol) == 1
         u = eu.semantic_get_unifier()
-        assert u is not None, "semantic_on/1 не установил унификатор"
-        assert abs(u.threshold - 0.9) < 1e-6, f"Порог = {u.threshold}, ожидался 0.9"
-        result.add_passed("semantic_on/1 как цель (реальный эмбеддер)")
+        assert u is not None, "semantic_on/1 did not install the unifier"
+        assert abs(u.threshold - 0.9) < 1e-6, f"Threshold = {u.threshold}, expected 0.9"
+        result.add_passed("semantic_on/1 as goal (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("semantic_on/1 как цель", e)
+        result.add_error("semantic_on/1 as goal", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_off_as_goal(result):
-    """semantic_off/0 отключает унификатор (реальный Ollama)."""
+    """semantic_off/0 disables the unifier (real Ollama)."""
     try:
         if not _check_ollama():
-            result.add_skipped("semantic_off/0 как цель", "Ollama/модель недоступны")
+            result.add_skipped("semantic_off/0 as goal", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         assert eu.semantic_get_unifier() is not None
         db = Database([])
         sol = list(db.query(Term("semantic_off")))
         assert len(sol) == 1
-        assert eu.semantic_get_unifier() is None, "semantic_off/0 не снял унификатор"
-        result.add_passed("semantic_off/0 как цель (реальный эмбеддер)")
+        assert eu.semantic_get_unifier() is None, "semantic_off/0 did not remove the unifier"
+        result.add_passed("semantic_off/0 as goal (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("semantic_off/0 как цель", e)
+        result.add_error("semantic_off/0 as goal", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_threshold_as_goal(result):
-    """semantic_threshold/1 меняет порог (реальный Ollama)."""
+    """semantic_threshold/1 changes the threshold (real Ollama)."""
     try:
         if not _check_ollama():
-            result.add_skipped("semantic_threshold/1 как цель", "Ollama/модель недоступны")
+            result.add_skipped("semantic_threshold/1 as goal", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         db = Database([])
@@ -721,22 +721,22 @@ def test_semantic_threshold_as_goal(result):
         assert len(sol) == 1
         u = eu.semantic_get_unifier()
         assert u is not None
-        assert abs(u.threshold - 0.7) < 1e-6, f"Порог = {u.threshold}, ожидался 0.7"
-        result.add_passed("semantic_threshold/1 как цель (реальный эмбеддер)")
+        assert abs(u.threshold - 0.7) < 1e-6, f"Threshold = {u.threshold}, expected 0.7"
+        result.add_passed("semantic_threshold/1 as goal (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("semantic_threshold/1 как цель", e)
+        result.add_error("semantic_threshold/1 as goal", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_directive_on(result):
-    """Директива :- semantic_on. в исходнике включает унификатор (реальный Ollama)."""
+    """Directive :- semantic_on. in the source enables the unifier (real Ollama)."""
     try:
         if not _check_ollama():
-            result.add_skipped("Директива :- semantic_on.", "Ollama/модель недоступны")
+            result.add_skipped("Directive :- semantic_on.", "Ollama/model unavailable")
             return True
         _uninstall_semantic()
         program = """
@@ -744,22 +744,22 @@ def test_semantic_directive_on(result):
         человек(сократ).
         """
         solver = Solver(program)
-        assert eu.semantic_get_unifier() is not None, "Директива :- semantic_on. не сработала"
-        result.add_passed("Директива :- semantic_on. (реальный эмбеддер)")
+        assert eu.semantic_get_unifier() is not None, "Directive :- semantic_on. did not fire"
+        result.add_passed("Directive :- semantic_on. (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Директива :- semantic_on.", e)
+        result.add_error("Directive :- semantic_on.", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_directive_on_with_threshold(result):
-    """Директива :- semantic_on(0.9)."""
+    """Directive :- semantic_on(0.9)."""
     try:
         if not _check_ollama():
-            result.add_skipped("Директива :- semantic_on(0.9).", "Ollama/модель недоступны")
+            result.add_skipped("Directive :- semantic_on(0.9).", "Ollama/model unavailable")
             return True
         _uninstall_semantic()
         program = """
@@ -768,23 +768,23 @@ def test_semantic_directive_on_with_threshold(result):
         """
         solver = Solver(program)
         u = eu.semantic_get_unifier()
-        assert u is not None, "Директива :- semantic_on(0.9). не сработала"
-        assert abs(u.threshold - 0.9) < 1e-6, f"Порог = {u.threshold}, ожидался 0.9"
-        result.add_passed("Директива :- semantic_on(0.9). (реальный эмбеддер)")
+        assert u is not None, "Directive :- semantic_on(0.9). did not fire"
+        assert abs(u.threshold - 0.9) < 1e-6, f"Threshold = {u.threshold}, expected 0.9"
+        result.add_passed("Directive :- semantic_on(0.9). (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Директива :- semantic_on(0.9).", e)
+        result.add_error("Directive :- semantic_on(0.9).", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_directive_off(result):
-    """Директива :- semantic_off. отключает унификатор."""
+    """Directive :- semantic_off. disables the unifier."""
     try:
         if not _check_ollama():
-            result.add_skipped("Директива :- semantic_off.", "Ollama/модель недоступны")
+            result.add_skipped("Directive :- semantic_off.", "Ollama/model unavailable")
             return True
         _install_real_semantic()
         assert eu.semantic_get_unifier() is not None
@@ -793,22 +793,22 @@ def test_semantic_directive_off(result):
         человек(сократ).
         """
         solver = Solver(program)
-        assert eu.semantic_get_unifier() is None, "Директива :- semantic_off. не сработала"
-        result.add_passed("Директива :- semantic_off. (реальный эмбеддер)")
+        assert eu.semantic_get_unifier() is None, "Directive :- semantic_off. did not fire"
+        result.add_passed("Directive :- semantic_off. (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Директива :- semantic_off.", e)
+        result.add_error("Directive :- semantic_off.", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_directive_threshold(result):
-    """Директива :- semantic_threshold(0.7)."""
+    """Directive :- semantic_threshold(0.7)."""
     try:
         if not _check_ollama():
-            result.add_skipped("Директива :- semantic_threshold(0.7).", "Ollama/модель недоступны")
+            result.add_skipped("Directive :- semantic_threshold(0.7).", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         program = """
@@ -817,23 +817,23 @@ def test_semantic_directive_threshold(result):
         """
         solver = Solver(program)
         u = eu.semantic_get_unifier()
-        assert u is not None, "Директива :- semantic_threshold. сняла унификатор"
-        assert abs(u.threshold - 0.7) < 1e-6, f"Порог = {u.threshold}, ожидался 0.7"
-        result.add_passed("Директива :- semantic_threshold(0.7). (реальный эмбеддер)")
+        assert u is not None, "Directive :- semantic_threshold. removed the unifier"
+        assert abs(u.threshold - 0.7) < 1e-6, f"Threshold = {u.threshold}, expected 0.7"
+        result.add_passed("Directive :- semantic_threshold(0.7). (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Директива :- semantic_threshold.", e)
+        result.add_error("Directive :- semantic_threshold.", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_case_insensitive_match(result):
-    """Реальный эмбеддер: 'Москва' ~ 'москва' (регистр) при пороге 0.8."""
+    """Real embedder: 'Москва' ~ 'москва' (case) at threshold 0.8."""
     try:
         if not _check_ollama():
-            result.add_skipped("Семантика: 'Москва' = 'москва'", "Ollama/модель недоступны")
+            result.add_skipped("Semantics: 'Москва' = 'москва'", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         program = """
@@ -843,30 +843,30 @@ def test_semantic_case_insensitive_match(result):
         db = Database(Parser(program).parse_rules())
         sol = list(db.query(Term("город", [Term("Москва")])))
         assert len(sol) == 1, (
-            f"Ожидалось 1 решение, получено {len(sol)}: {[str(s) for s in sol]}"
+            f"Expected 1 solution, got {len(sol)}: {[str(s) for s in sol]}"
         )
-        # Заодно покажем косинусную близость для отчёта
+        # Also report cosine similarity
         u = eu.semantic_get_unifier()
         v1 = u._embed("Москва")
         v2 = u._embed("москва")
         cos = u._cosine(v1, v2)
         print(f"[SEMANTIC] cos('Москва', 'москва') = {cos:.4f}")
         assert cos >= 0.8, f"cos('Москва', 'москва') = {cos:.4f} < 0.8"
-        result.add_passed("Семантическая унификация: 'Москва' = 'москва' (реальный эмбеддер)")
+        result.add_passed("Semantic unification: 'Москва' = 'москва' (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Семантическое совпадение регистра", e)
+        result.add_error("Semantic case match", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_different_words_fail(result):
-    """Реальный эмбеддер: 'лондон' не совпадает с 'москва'/'париж' при пороге 0.8."""
+    """Real embedder: 'лондон' does not match 'москва'/'париж' at threshold 0.8."""
     try:
         if not _check_ollama():
-            result.add_skipped("Семантика: 'лондон' ≠ 'москва'", "Ollama/модель недоступны")
+            result.add_skipped("Semantics: 'лондон' ≠ 'москва'", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         program = """
@@ -884,23 +884,23 @@ def test_semantic_different_words_fail(result):
         print(f"[SEMANTIC] cos('лондон','москва') = {cos1:.4f}, "
               f"cos('лондон','париж') = {cos2:.4f}")
         assert len(sol) == 0, (
-            f"Ожидалось 0 решений, получено: {[str(s) for s in sol]}"
+            f"Expected 0 solutions, got: {[str(s) for s in sol]}"
         )
         assert cos1 < 0.8 and cos2 < 0.8, (
-            f"Косинусы должны быть < 0.8: {cos1:.4f}, {cos2:.4f}"
+            f"Cosines must be < 0.8: {cos1:.4f}, {cos2:.4f}"
         )
-        result.add_passed("Семантическая унификация: 'лондон' ≠ 'москва'/'париж' (реальный эмбеддер)")
+        result.add_passed("Semantic unification: 'лондон' ≠ 'москва'/'париж' (real embedder)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Семантическое различие", e)
+        result.add_error("Semantic difference", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_off_falls_back_to_strict(result):
-    """После semantic_off строгая унификация не находит 'Москва' vs 'москва'. Ollama не требуется."""
+    """After semantic_off, strict unification does not match 'Москва' vs 'москва'. Ollama not required."""
     try:
         _uninstall_semantic()
         program = """
@@ -909,23 +909,23 @@ def test_semantic_off_falls_back_to_strict(result):
         db = Database(Parser(program).parse_rules())
         sol = list(db.query(Term("город", [Term("Москва")])))
         assert len(sol) == 0, (
-            f"Ожидалось 0 решений (строгая унификация), получено: {[str(s) for s in sol]}"
+            f"Expected 0 solutions (strict unification), got: {[str(s) for s in sol]}"
         )
-        result.add_passed("Строгая унификация после semantic_off (Москва ≠ москва)")
+        result.add_passed("Strict unification after semantic_off (Москва ≠ москва)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Строгая унификация после off", e)
+        result.add_error("Strict unification after off", e)
         return False
     finally:
         _uninstall_semantic()
 
 
 def test_semantic_cache_reuse(result):
-    """Кэш эмбеддингов накапливает попадания при повторных вызовах (реальный эмбеддер)."""
+    """Embedding cache accumulates hits on repeated calls (real embedder)."""
     try:
         if not _check_ollama():
-            result.add_skipped("Кэш эмбеддингов", "Ollama/модель недоступны")
+            result.add_skipped("Embedding cache", "Ollama/model unavailable")
             return True
         _install_real_semantic(threshold=0.8)
         program = """
@@ -933,20 +933,20 @@ def test_semantic_cache_reuse(result):
         город(париж).
         """
         db = Database(Parser(program).parse_rules())
-        # Дважды выполняем один и тот же запрос с семантикой
+        # Run the same semantic query twice
         list(db.query(Term("город", [Term("Москва")])))
         list(db.query(Term("город", [Term("Москва")])))
         u = eu.semantic_get_unifier()
         assert u is not None
         stats = u.cache.stats()
         print(f"[SEMANTIC] cache stats: {stats}")
-        assert stats['hits'] >= 1, f"Ожидались попадания в кэш, получено: {stats}"
-        assert stats['misses'] >= 1, f"Ожидались промахи в кэш, получено: {stats}"
-        result.add_passed("Кэш эмбеддингов (есть hits и misses)")
+        assert stats['hits'] >= 1, f"Expected cache hits, got: {stats}"
+        assert stats['misses'] >= 1, f"Expected cache misses, got: {stats}"
+        result.add_passed("Embedding cache (has hits and misses)")
         return True
     except Exception as e:
         traceback.print_exc()
-        result.add_error("Кэш эмбеддингов", e)
+        result.add_error("Embedding cache", e)
         return False
     finally:
         _uninstall_semantic()
@@ -954,44 +954,44 @@ def test_semantic_cache_reuse(result):
 
 def main():
     print("="*60)
-    print("ПОЛНЫЙ ТЕСТ ОПТИМИЗИРОВАННОГО ИНТЕРПРЕТАТОРА PROLOG (СТРОКИ)")
-    print(f"Семантическая модель: {OLLAMA_MODEL} @ {OLLAMA_URL}")
+    print("FULL TEST OF THE OPTIMIZED PROLOG INTERPRETER (STRINGS)")
+    print(f"Semantic model: {OLLAMA_MODEL} @ {OLLAMA_URL}")
     print("="*60)
-    result = TestResult("Оптимизированный интерпретатор Prolog")
+    result = TestResult("Optimized Prolog interpreter")
     tests = [
-        ("Парсинг", test_parser_basic),
-        ("Семейные правила", test_family_rules),
-        ("Арифметика", test_arithmetic),
-        ("Унификация", test_unification),
-        ("Списки базовые", test_lists_basic),
-        ("Ввод/вывод", test_builtin_io),
-        ("Управляющие предикаты", test_control_predicates),
-        ("Списковые предикаты", test_list_predicates),
-        ("Мета-предикаты", test_meta_predicates),
-        ("Динамическая БД", test_dynamic_db),
-        ("Строковые предикаты", test_string_predicates),
-        ("Сравнение термов", test_term_compare),
-        ("Конструкторы термов", test_term_constructors),
-        ("Проверка типов", test_type_predicates),
+        ("Parsing", test_parser_basic),
+        ("Family rules", test_family_rules),
+        ("Arithmetic", test_arithmetic),
+        ("Unification", test_unification),
+        ("Lists basic", test_lists_basic),
+        ("I/O", test_builtin_io),
+        ("Control predicates", test_control_predicates),
+        ("List predicates", test_list_predicates),
+        ("Meta-predicates", test_meta_predicates),
+        ("Dynamic DB", test_dynamic_db),
+        ("String predicates", test_string_predicates),
+        ("Term comparison", test_term_compare),
+        ("Term constructors", test_term_constructors),
+        ("Type checking", test_type_predicates),
         ("memberchk", test_memberchk),
-        ("Конъюнкция/дизъюнкция", test_conjunction_disjunction),
-        ("Отсечение продвинутое", test_cut_advanced),
-        ("Условный оператор", test_if_then_else),
-        ("Отрицание сложное", test_negation_complex),
-        # --- Семантическая унификация (реальный эмбеддер) ---
-        ("Семантика: статус изначально off", test_semantic_status_initially_off),
-        ("Семантика: semantic_on/0 как цель", test_semantic_on_as_goal),
-        ("Семантика: semantic_on/1 как цель", test_semantic_on_threshold_as_goal),
-        ("Семантика: semantic_off/0 как цель", test_semantic_off_as_goal),
-        ("Семантика: semantic_threshold/1 как цель", test_semantic_threshold_as_goal),
-        ("Семантика: директива :- semantic_on.", test_semantic_directive_on),
-        ("Семантика: директива :- semantic_on(0.9).", test_semantic_directive_on_with_threshold),
-        ("Семантика: директива :- semantic_off.", test_semantic_directive_off),
-        ("Семантика: директива :- semantic_threshold(0.7).", test_semantic_directive_threshold),
-        ("Семантика: 'Москва' = 'москва'", test_semantic_case_insensitive_match),
-        ("Семантика: 'лондон' ≠ 'москва'", test_semantic_different_words_fail),
-        ("Семантика: off -> строгая унификация", test_semantic_off_falls_back_to_strict),
-        ("Семантика: кэш эмбеддингов", test_semantic_cache_reuse),
+        ("Conjunction/disjunction", test_conjunction_disjunction),
+        ("Cut advanced", test_cut_advanced),
+        ("Conditional operator", test_if_then_else),
+        ("Negation complex", test_negation_complex),
+        # --- Semantic unification (real embedder) ---
+        ("Semantics: status initially off", test_semantic_status_initially_off),
+        ("Semantics: semantic_on/0 as goal", test_semantic_on_as_goal),
+        ("Semantics: semantic_on/1 as goal", test_semantic_on_threshold_as_goal),
+        ("Semantics: semantic_off/0 as goal", test_semantic_off_as_goal),
+        ("Semantics: semantic_threshold/1 as goal", test_semantic_threshold_as_goal),
+        ("Semantics: directive :- semantic_on.", test_semantic_directive_on),
+        ("Semantics: directive :- semantic_on(0.9).", test_semantic_directive_on_with_threshold),
+        ("Semantics: directive :- semantic_off.", test_semantic_directive_off),
+        ("Semantics: directive :- semantic_threshold(0.7).", test_semantic_directive_threshold),
+        ("Semantics: 'Москва' = 'москва'", test_semantic_case_insensitive_match),
+        ("Semantics: 'лондон' ≠ 'москва'", test_semantic_different_words_fail),
+        ("Semantics: off -> strict unification", test_semantic_off_falls_back_to_strict),
+        ("Semantics: embedding cache", test_semantic_cache_reuse),
     ]
     for name, func in tests:
         print(f"\n--- {name} ---")

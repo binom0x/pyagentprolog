@@ -1,20 +1,20 @@
 """ PyAgentProlog
 
-Фреймворк для создания ИИ-агентов на PyAgentProlog с действиями на Python.
+Framework for building AI agents on PyAgentProlog with Python actions.
 
-Канонические реализации вынесены:
+Canonical implementations have been moved out:
     - prolog_to_python, python_to_prolog, prolog_list_to_python
       → prolog.bridge
     - simple_action, effector_action, generator_action
       → prolog.actions
 
-Этот модуль реэкспортирует их для обратной совместимости и
-предоставляет класс Agent и его встроенные предикаты set_state/1,
+This module re-exports them for backward compatibility and
+provides the Agent class and its built-in predicates set_state/1,
 update_state/1.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1 (canonical bridge/actions)
+version 1.0.1 (canonical bridge/actions)
 """
 
 import pickle
@@ -29,8 +29,8 @@ from prolog.parser import Parser
 from prolog.terms import Term, Variable, Number, Rule
 from prolog.predicates import prolog_predicate
 
-# Канонические реализации — в prolog.bridge / prolog.actions.
-# Реэкспорт для обратной совместимости:
+# Canonical implementations live in prolog.bridge / prolog.actions.
+# Re-export for backward compatibility:
 #   from prolog.agent import prolog_to_python  → prolog.bridge.prolog_to_python
 #   from prolog.agent import simple_action     → prolog.actions.simple_action
 from prolog.bridge import (
@@ -48,18 +48,18 @@ DEBUG = False
 
 
 # ------------------------------------------------------------
-# Legacy @agent_action decorator (обратная совместимость)
+# Legacy @agent_action decorator (backward compatibility)
 # ------------------------------------------------------------
 def agent_action(name: str, arity: int, description: str = None,
                  action_type: str = "generic"):
-    """Legacy-декоратор для регистрации Python-функции как
-    Prolog-предиката-действия агента.
+    """Legacy decorator for registering a Python function as a
+    Prolog predicate-action of an agent.
 
-    Оставлен для обратной совместимости. Новый код должен
-    использовать simple_action / effector_action / generator_action
-    из prolog.actions.
+    Kept for backward compatibility. New code should use
+    simple_action / effector_action / generator_action
+    from prolog.actions.
 
-    Возвращает функцию-обёртку с метаданными:
+    Returns a wrapper function with metadata:
         _agent_action, _action_name, _action_arity,
         _action_description, _action_type,
         _is_prolog_predicate, _predicate_name, _predicate_arity.
@@ -78,18 +78,18 @@ def agent_action(name: str, arity: int, description: str = None,
                 print(f"Agent action called: {name}/{arity}")
             return func(*args, **kwargs)
 
-        # functools.wraps скопировал __dict__ из func, куда prolog_predicate
-        # и последующие присваивания положили все метаданные. Поэтому wrapper
-        # тоже имеет их и будет найден register_action_module.
+        # functools.wraps copied __dict__ from func, where prolog_predicate
+        # and subsequent assignments placed all the metadata. Therefore the
+        # wrapper also has them and will be found by register_action_module.
         return wrapper
     return decorator
 
 
 # ------------------------------------------------------------
-# Вспомогательные функции
+# Helper functions
 # ------------------------------------------------------------
 def is_ground(term) -> bool:
-    """Проверяет, не содержит ли терм свободных переменных."""
+    """Checks whether the term contains no free variables."""
     if isinstance(term, Variable):
         return False
     elif isinstance(term, Number):
@@ -101,13 +101,13 @@ def is_ground(term) -> bool:
 
 
 # ------------------------------------------------------------
-# Встроенные агентские предикаты (действия)
+# Built-in agent predicates (actions)
 # ------------------------------------------------------------
 @agent_action('set_state', 1,
               description="Replace all facts with the same functor/arity "
                           "by this ground fact")
 def set_state(goal, database, subst, depth):
-    """Заменяет все факты с данным функтором/арностью на новый факт."""
+    """Replaces all facts with the given functor/arity with the new fact."""
     if len(goal.arguments) != 1:
         return []
 
@@ -117,17 +117,17 @@ def set_state(goal, database, subst, depth):
 
     from prolog.terms import Variable
 
-    # Создаём шаблон головы с переменными
+    # Create a head template with variables
     functor = term.functor
     arity = len(term.arguments)
     vars = [Variable('_') for _ in range(arity)]
     head_template = Term(functor, vars)
     template_rule = Rule(head_template, Term('true', []))
 
-    # Удаляем все подходящие факты
+    # Remove all matching facts
     database.retract_all(template_rule)
 
-    # Добавляем новый факт
+    # Add the new fact
     database.add_rule(Rule(term, Term('true', [])))
 
     return [subst.copy()]
@@ -136,7 +136,7 @@ def set_state(goal, database, subst, depth):
 @agent_action('update_state', 1,
               description="Add a fact (without deleting old ones)")
 def update_state(goal, database, subst, depth):
-    """Добавляет факт, не удаляя старые."""
+    """Adds a fact without deleting the old ones."""
     if len(goal.arguments) != 1:
         return []
 
@@ -150,24 +150,24 @@ def update_state(goal, database, subst, depth):
 
 
 # ------------------------------------------------------------
-# Основной класс Agent
+# Main Agent class
 # ------------------------------------------------------------
 class Agent:
     """
-    ИИ-агент, управляемый Prolog-программой с возможностью вызова
-    Python-действий через пользовательские предикаты.
+    AI agent driven by a Prolog program with the ability to call
+    Python actions via user-defined predicates.
     """
 
     def __init__(self, program: str = "", pl_file: str = "",
                  context: dict = None):
         """
-        Инициализирует агента.
+        Initializes the agent.
 
         Args:
-            program: Текст программы на Prolog.
-            pl_file: Файл с программой на Prolog для загрузки.
-            context: Словарь с внешними ресурсами (LLM-клиенты, API и т.д.),
-                     доступный из действий через database.context.
+            program: Prolog program text.
+            pl_file: File with a Prolog program to load.
+            context: Dictionary with external resources (LLM clients, APIs, etc.)
+                     accessible from actions via database.context.
         """
         pl_prog = program
         if not program and pl_file:
@@ -177,17 +177,17 @@ class Agent:
         self.solver = Solver(pl_prog, context=context)
         self._actions: Dict[Tuple[str, int], Dict] = {}
 
-        # Автоматически регистрируем встроенные агентские предикаты
+        # Automatically register built-in agent predicates
         self._register_builtins()
 
     def _register_builtins(self):
-        """Регистрирует встроенные предикаты set_state/1 и update_state/1."""
+        """Registers the built-in predicates set_state/1 and update_state/1."""
         current_module = sys.modules[__name__]
         self.register_action_module(current_module)
 
     def register_action(self, func):
-        """Регистрирует одно действие, декорированное @agent_action
-        или новыми декораторами (simple_action / effector_action /
+        """Registers a single action decorated with @agent_action
+        or with the new decorators (simple_action / effector_action /
         generator_action)."""
         if not hasattr(func, '_agent_action'):
             raise ValueError("Function is not decorated with @agent_action")
@@ -204,14 +204,14 @@ class Agent:
             print(f"Registered agent action: {name}/{arity}")
 
     def register_action_module(self, module):
-        """Регистрирует все действия из указанного модуля."""
+        """Registers all actions from the given module."""
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
             if callable(attr) and hasattr(attr, '_agent_action'):
                 self.register_action(attr)
 
     def list_actions(self) -> List[Dict]:
-        """Возвращает список зарегистрированных действий с метаданными."""
+        """Returns a list of registered actions with metadata."""
         return [
             {
                 'name': name,
@@ -223,16 +223,16 @@ class Agent:
 
     def query(self, query_text: str, with_explanation: bool = False):
         """
-        Выполняет Prolog-запрос.
+        Executes a Prolog query.
 
         Args:
-            query_text: Текст запроса (должен оканчиваться точкой).
-            with_explanation: Если True, возвращает также объект объяснения.
+            query_text: Query text (must end with a period).
+            with_explanation: If True, also returns an explanation object.
 
         Returns:
-            Если with_explanation=False: словарь с результатами.
-            Если with_explanation=True: кортеж (словарь с результатами,
-                объект объяснения).
+            If with_explanation=False: a dictionary with results.
+            If with_explanation=True: a tuple (dictionary with results,
+                explanation object).
         """
         result = self.solver.find_solutions(
             query_text, with_explanation=with_explanation
@@ -246,15 +246,15 @@ class Agent:
 
     def query_one(self, query_text: str) -> Optional[Dict[str, Any]]:
         """
-        Возвращает первое решение запроса или None.
+        Returns the first solution of the query, or None.
 
-        Отличает «запрос провалился» от «запрос успешен, но без свободных
-        переменных». В первом случае возвращает None, во втором — словарь
-        с маркером '__success__'.
+        Distinguishes "query failed" from "query succeeded but without free
+        variables". In the first case, returns None; in the second, a dict
+        with the marker '__success__'.
         """
         result = self.query(query_text)
         if isinstance(result, dict):
-            # Успех без свободных переменных: query() вернул True.
+            # Success without free variables: query() returned True.
             if result.get('solution') is True:
                 return {'__success__': True}
             if ('solutions' in result
@@ -270,11 +270,11 @@ class Agent:
         return None
 
     def _parse_solutions(self, query_text, raw_solutions):
-        """Переопределяем парсинг решений, чтобы возвращать Python-объекты."""
+        """Overrides solution parsing to return Python objects."""
         from prolog.solver import ParseSolution
-        # Стандартный парсинг (словарь с ключами 'solution', 'output' и т.д.)
+        # Standard parsing (dict with keys 'solution', 'output', etc.)
         parsed = ParseSolution(query_text, raw_solutions, explanation=None)
-        # Преобразуем строковые значения в Python-объекты
+        # Convert string values to Python objects
         if 'solution' in parsed:
             sol = parsed['solution']
             if isinstance(sol, dict):
@@ -287,9 +287,9 @@ class Agent:
 
     def _convert_solution(self, sol_dict):
         """
-        Рекурсивно преобразует строковые значения в Python-объекты
-        (числа, списки). Использует ast.literal_eval для безопасного
-        парсинга литералов.
+        Recursively converts string values to Python objects
+        (numbers, lists). Uses ast.literal_eval for safe
+        parsing of literals.
         """
         if not isinstance(sol_dict, dict):
             return sol_dict
@@ -297,32 +297,32 @@ class Agent:
         for var, val in sol_dict.items():
             if isinstance(val, str):
                 try:
-                    # ast.literal_eval безопасно парсит числа, строки,
-                    # списки, кортежи, словари и т.д.
+                    # ast.literal_eval safely parses numbers, strings,
+                    # lists, tuples, dicts, etc.
                     parsed = ast.literal_eval(val)
                     val = parsed
                 except (ValueError, SyntaxError):
-                    # Если не удалось, оставляем как строку
+                    # If parsing fails, keep it as a string
                     pass
             converted[var] = val
         return converted
 
     def add_fact(self, fact_text: str):
-        """Добавляет один факт в базу знаний (совместимость).
+        """Adds a single fact to the knowledge base (compatibility).
 
-        Делегирует в add_facts, чтобы не дублировать логику парсинга.
+        Delegates to add_facts to avoid duplicating parsing logic.
         """
         self.add_facts(fact_text)
 
     def add_facts(self, facts_text: str):
-        """Добавляет пачку фактов/правил за ОДИН вызов парсера.
+        """Adds a batch of facts/rules in a SINGLE parser call.
 
-        В отличие от add_fact, рассчитан на многострочный текст: каждое
-        правило отделено точкой. Это даёт ~3–5× ускорение при загрузке
-        5+ фактов, потому что Parser создаётся и делает regex-токенизацию
-        один раз на весь пакет, а не на каждый факт.
+        Unlike add_fact, it is designed for multi-line text: each
+        rule is separated by a period. This gives ~3–5× speedup when
+        loading 5+ facts, because Parser is created and performs
+        regex tokenization once for the whole batch, not per fact.
 
-        Пример:
+        Example:
             agent.add_facts('''
                 my_pos(5.0, 5.0).
                 my_mode(search).
@@ -341,7 +341,7 @@ class Agent:
                 print(f"Added fact: {rule}")
 
     def retract_fact(self, fact_template: str) -> Optional[Dict]:
-        """Удаляет первое правило, унифицирующееся с шаблоном."""
+        """Removes the first rule that unifies with the template."""
         if not fact_template.strip().endswith('.'):
             fact_template = fact_template.strip() + '.'
         rules = Parser(fact_template).parse_rules()
@@ -351,7 +351,7 @@ class Agent:
         return self.solver.database.retract_first(template_rule)
 
     def retract_all(self, fact_template: str) -> int:
-        """Удаляет все правила, унифицирующиеся с шаблоном."""
+        """Removes all rules that unify with the template."""
         if not fact_template.strip().endswith('.'):
             fact_template = fact_template.strip() + '.'
         rules = Parser(fact_template).parse_rules()
@@ -370,20 +370,20 @@ class Agent:
 
     def stream(self, query_text: str, with_explanation: bool = False):
         """
-        Выполняет Prolog-запрос и возвращает генератор, выдающий решения
-        по мере их нахождения. Полезно для длительных запросов или когда
-        нужно обрабатывать результаты в реальном времени.
+        Executes a Prolog query and returns a generator that yields
+        solutions as they are found. Useful for long-running queries or
+        when results need to be processed in real time.
 
         Args:
-            query_text: Текст запроса (должен оканчиваться точкой).
-            with_explanation: Зарезервировано (пока не реализовано).
+            query_text: Query text (must end with a period).
+            with_explanation: Reserved (not implemented yet).
 
         Yields:
-            - Если запрос содержит переменные: словарь
-              {имя_переменной: значение} для каждого решения.
-            - Если запрос не содержит переменных: True при успехе,
-              False при неудаче.
-            - В случае ошибки: словарь с ключом 'error'.
+            - If the query contains variables: a dict
+              {variable_name: value} for each solution.
+            - If the query has no variables: True on success,
+              False on failure.
+            - On error: a dict with the key 'error'.
         """
         from prolog.parser import Parser
         from prolog.terms import Variable
@@ -391,10 +391,10 @@ class Agent:
         try:
             query = Parser(query_text).parse_query()
         except Exception as e:
-            yield {'error': f'Ошибка парсинга запроса: {e}'}
+            yield {'error': f'Query parse error: {e}'}
             return
 
-        # Находим все переменные в запросе
+        # Find all variables in the query
         variables = {}
 
         def find_vars(term):
@@ -410,7 +410,7 @@ class Agent:
         found = False
 
         try:
-            # Используем внутренний генератор решений базы знаний
+            # Use the internal solution generator of the knowledge base
             for subst in self.solver.database._solve(
                 query, self.solver.database.rule_index, {}, 0
             ):
@@ -424,7 +424,7 @@ class Agent:
                 else:
                     yield True
         except Exception as e:
-            yield {'error': f'Ошибка выполнения запроса: {e}'}
+            yield {'error': f'Query execution error: {e}'}
         finally:
             if not has_vars and not found:
                 yield False
@@ -434,44 +434,44 @@ class Agent:
 
     def save_kb(self, filename: str, format: str = 'prolog') -> None:
         """
-        Сохраняет текущую базу знаний в файл указанного формата.
+        Saves the current knowledge base to a file in the given format.
 
         Args:
-            filename: Имя файла для сохранения.
-            format:   'prolog' – текстовый формат Prolog (каждое правило
-                      с точкой);
-                      'binary' – бинарный формат (pickle) для быстрой
-                      загрузки.
+            filename: Name of the file to save.
+            format:   'prolog' – text Prolog format (each rule
+                      ending with a period);
+                      'binary' – binary format (pickle) for fast
+                      loading.
         """
         if format == 'prolog':
             with open(filename, 'w', encoding='utf-8') as f:
                 for rule in self.solver.database.rules:
                     f.write(str(rule) + '\n')
             if DEBUG:
-                print(f"База знаний сохранена в текстовом формате: {filename}")
+                print(f"Knowledge base saved in text format: {filename}")
 
         elif format == 'binary':
-            # Сериализуем список правил с версией для будущих изменений
+            # Serialize the list of rules with a version for future changes
             data = {'version': 1, 'rules': self.solver.database.rules}
             with open(filename, 'wb') as f:
                 pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
             if DEBUG:
-                print(f"База знаний сохранена в бинарном формате: {filename}")
+                print(f"Knowledge base saved in binary format: {filename}")
 
         else:
-            raise ValueError("format должен быть 'prolog' или 'binary'")
+            raise ValueError("format must be 'prolog' or 'binary'")
 
     def load_kb(self, filename: str, format: str = 'prolog',
                 clear: bool = False) -> None:
         """
-        Загружает базу знаний из файла указанного формата.
+        Loads the knowledge base from a file in the given format.
 
         Args:
-            filename: Имя файла для загрузки.
-            format:   'prolog' – текстовый формат Prolog (парсится);
-                      'binary' – бинарный формат (pickle, без парсинга).
-            clear:    Если True, текущая база полностью очищается
-                      перед загрузкой.
+            filename: Name of the file to load.
+            format:   'prolog' – text Prolog format (parsed);
+                      'binary' – binary format (pickle, no parsing).
+            clear:    If True, the current base is fully cleared
+                      before loading.
         """
         if clear:
             self.clear_kb()
@@ -484,14 +484,14 @@ class Agent:
                 rules = Parser(content).parse_rules()
             except Exception as e:
                 raise ValueError(
-                    f"Ошибка парсинга файла {filename}: {e}"
+                    f"Parse error in file {filename}: {e}"
                 )
 
             for rule in rules:
                 self.solver.database.add_rule(rule)
 
             if DEBUG:
-                print(f"Загружено {len(rules)} правил из текстового файла "
+                print(f"Loaded {len(rules)} rules from text file "
                       f"{filename}")
 
         elif format == 'binary':
@@ -500,13 +500,12 @@ class Agent:
                     data = pickle.load(f)
             except Exception as e:
                 raise ValueError(
-                    f"Ошибка загрузки бинарного файла {filename}: {e}"
+                    f"Error loading binary file {filename}: {e}"
                 )
 
             if not isinstance(data, dict) or data.get('version') != 1:
                 raise ValueError(
-                    "Неверный формат бинарного файла или версия "
-                    "не поддерживается"
+                    "Invalid binary file format or unsupported version"
                 )
 
             rules = data['rules']
@@ -514,26 +513,26 @@ class Agent:
                 self.solver.database.add_rule(rule)
 
             if DEBUG:
-                print(f"Загружено {len(rules)} правил из бинарного файла "
+                print(f"Loaded {len(rules)} rules from binary file "
                       f"{filename}")
 
         else:
-            raise ValueError("format должен быть 'prolog' или 'binary'")
+            raise ValueError("format must be 'prolog' or 'binary'")
 
     def clear_kb(self) -> None:
-        """Полностью очищает базу знаний."""
+        """Fully clears the knowledge base."""
         self.solver.database.rules.clear()
         self.solver.database.build_rule_index()
         if DEBUG:
-            print("База знаний очищена")
+            print("Knowledge base cleared")
 
 
 # ------------------------------------------------------------
-# Экспорт
+# Export
 # ------------------------------------------------------------
-# Сохранён оригинальный __all__ (обратная совместимость для
-# `from prolog.agent import *`). Реэкспортированные bridge-функции
-# доступны через явный импорт:
+# Original __all__ preserved (backward compatibility for
+# `from prolog.agent import *`). Re-exported bridge functions
+# are available via explicit import:
 #     from prolog.agent import prolog_to_python, python_to_prolog
 __all__ = [
     'Agent',

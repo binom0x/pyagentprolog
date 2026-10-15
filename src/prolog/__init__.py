@@ -1,29 +1,30 @@
-"""PyAgentProlog — Prolog-движок с агентами, трассировкой и семантической унификацией.
+"""PyAgentProlog — Prolog engine with agents, tracing, and semantic unification.
 
-Prolog-движок на Python с поддержкой:
-  * трассировки доказательств                     (tracer);
-  * встроенных и мета-предикатов                  (predicates);
-  * итеративного солвера с TCO и отсечением       (interpreter, solver);
-  * агентов с Python-действиями                   (agent, actions);
-  * семантической унификации на эмбеддингах       (embedding_unify);
-  * интеграции с LangChain                        (prologchain);
-  * Gradio-сессий для агента и эксперта           (proagent_gradio).
+Prolog engine in Python with support for:
+  * proof tracing                          (tracer);
+  * built-in and meta-predicates           (predicates);
+  * iterative solver with TCO and cut      (interpreter, solver);
+  * agents with Python actions             (agent, actions);
+  * semantic unification on embeddings     (embedding_unify);
+  * LangChain integration                  (prologchain);
+  * Gradio sessions for the agent          (proagent_gradio).
 
-Порядок импортов важен: ядро
+Import order matters: the core
     terms → bridge → parser → tracer → predicates
           → interpreter → solver → actions → agent
-загружается раньше зависимых модулей. Опциональные зависимости
+is loaded before dependent modules. Optional dependencies
 (numpy, langchain_core, gradio, expert, sentence-transformers)
-подключаются по мере наличия: если пакет недоступен, соответствующий
-модуль просто не импортируется, а ядро продолжает работать.
+are connected when available: if a package is unavailable,
+the corresponding module is simply not imported, and the core
+continues to work.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 """
 
-__version__ = "5.9.1"
+__version__ = "1.0.1"
 __author__ = "Andrey Vorfolomeev"
 
-# --- Ядро (без внешних зависимостей) ---
+# --- Core (no external dependencies) ---
 from .terms import (
     Term, Variable, Number, Rule,
     set_custom_unifier, get_custom_unifier, clear_custom_unifier,
@@ -44,7 +45,7 @@ from .solver import (
 from .actions import simple_action, effector_action, generator_action
 from .agent import Agent, agent_action
 
-# --- Опциональные модули ---
+# --- Optional modules ---
 try:
     from .embedding_unify import (
         EmbeddingUnifier, semantic_on, semantic_off,

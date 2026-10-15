@@ -1,3 +1,0 @@
-ЗАГРУЗКА ЭМБЕДДЕРА С HF В ЛОКАЛЬНУЮ ПАПКУ
-
-hf download sentence-transformers/paraphrase-multilingual-mpnet-base-v2 --local-dir D:\models\paraphrase-multilingual-mpnet

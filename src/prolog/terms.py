@@ -1,21 +1,22 @@
 """ PyAgentProlog
 
-Базовые классы для термов с оптимизированной унификацией (occurs_check отключён по умолчанию)
-и уменьшенным потреблением памяти (__slots__).
+Base classes for terms with optimized unification (occurs_check disabled by
+default) and reduced memory consumption (__slots__).
 
-Поддерживается подключаемый унификатор (например, семантический на эмбеддингах):
-публичный Term.unify(...) — точка входа-диспетчер, а строгая унификация
-вынесена в Term.unify_strict(...) и не уходит повторно в кастомный унификатор.
+A pluggable unifier is supported (e.g., semantic on embeddings):
+the public Term.unify(...) is a dispatcher entry point, while strict
+unification is moved to Term.unify_strict(...) and does not go back into
+the custom unifier.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 import sys
 import threading
 
-DEBUG_UNIFY = False   # Отладку можно включить при необходимости
+DEBUG_UNIFY = False   # Debugging can be enabled if needed
 
 
 def debug(*args, indent=0, **kwargs):
@@ -24,32 +25,32 @@ def debug(*args, indent=0, **kwargs):
 
 
 # =====================================================================
-# Подключаемый унификатор
+# Pluggable unifier
 # =====================================================================
 _custom_unifier = None
 _thread_local = threading.local()
 
 
 def set_custom_unifier(unifier) -> None:
-    """Установить пользовательский унификатор (например, EmbeddingUnifier)."""
+    """Install a user-defined unifier (e.g., EmbeddingUnifier)."""
     global _custom_unifier
     _custom_unifier = unifier
 
 
 def get_custom_unifier():
-    """Получить текущий пользовательский унификатор (или None)."""
+    """Get the current user-defined unifier (or None)."""
     return _custom_unifier
 
 
 def clear_custom_unifier() -> None:
-    """Вернуть строгую унификацию по умолчанию."""
+    """Revert to the default strict unification."""
     global _custom_unifier
     _custom_unifier = None
 # =====================================================================
 
 
 class Term:
-    """Базовый класс для термов Prolog"""
+    """Base class for Prolog terms"""
     __slots__ = ('functor', 'arguments')
 
     def __init__(self, functor, arguments=None):
@@ -57,17 +58,17 @@ class Term:
         self.arguments = arguments or []
 
     # -----------------------------------------------------------------
-    # Публичная точка входа — диспетчер
+    # Public entry point — dispatcher
     # -----------------------------------------------------------------
     def unify(self, other, subst=None, depth=0, occurs_check=False):
         """
-        Унификация термов.
+        Unification of terms.
 
-        Если установлен кастомный унификатор (например, семантический
-        на эмбеддингах) и мы не находимся внутри него — вызываем его.
-        В противном случае выполняется строгая унификация unify_strict.
+        If a custom unifier (e.g., semantic on embeddings) is installed
+        and we are not inside it — call it.
+        Otherwise, strict unification unify_strict is performed.
 
-        Параметр occurs_check управляет проверкой вхождения (по умолчанию выключена).
+        The occurs_check parameter controls the occurrence check (disabled by default).
         """
         if subst is None:
             subst = {}
@@ -81,12 +82,12 @@ class Term:
         return self.unify_strict(other, subst, depth, occurs_check)
 
     # -----------------------------------------------------------------
-    # Строгая унификация (исходный алгоритм без изменений)
+    # Strict unification (original algorithm unchanged)
     # -----------------------------------------------------------------
     def unify_strict(self, other, subst=None, depth=0, occurs_check=False):
         """
-        Строгая унификация термов (без обращения к кастомному унификатору).
-        Параметр occurs_check управляет проверкой вхождения (по умолчанию выключена).
+        Strict unification of terms (without calling the custom unifier).
+        The occurs_check parameter controls the occurrence check (disabled by default).
         """
         if subst is None:
             subst = {}
@@ -94,94 +95,94 @@ class Term:
         debug(f"unify({self}, {other})", indent=depth)
         debug(f"  subst = { {str(k):str(v) for k,v in subst.items()} }", indent=depth)
 
-        # Если это одна и та же переменная
+        # If this is the same variable
         if self is other:
-            debug(f"  одна и та же ссылка -> {subst}", indent=depth)
+            debug(f"  same reference -> {subst}", indent=depth)
             return subst
 
-        # Если self - переменная
+        # If self is a variable
         if isinstance(self, Variable):
-            debug(f"  self - переменная {self.name}", indent=depth)
+            debug(f"  self is variable {self.name}", indent=depth)
             res = self.unify_with(other, subst, depth + 1, occurs_check)
-            debug(f"  результат унификации переменной: {res}", indent=depth)
+            debug(f"  variable unification result: {res}", indent=depth)
             return res
 
-        # Если other - переменная
+        # If other is a variable
         if isinstance(other, Variable):
-            debug(f"  other - переменная {other.name}", indent=depth)
+            debug(f"  other is variable {other.name}", indent=depth)
             res = other.unify_with(self, subst, depth + 1, occurs_check)
-            debug(f"  результат унификации переменной: {res}", indent=depth)
+            debug(f"  variable unification result: {res}", indent=depth)
             return res
 
-        # Если self - число
+        # If self is a number
         if isinstance(self, Number):
-            debug(f"  self - число {self.value}", indent=depth)
+            debug(f"  self is number {self.value}", indent=depth)
             if isinstance(other, Number):
                 if self.value == other.value:
-                    debug(f"    числа равны -> {subst}", indent=depth)
+                    debug(f"    numbers are equal -> {subst}", indent=depth)
                     return subst
             elif isinstance(other, Term):
                 try:
                     val = float(other.functor) if '.' in other.functor else int(other.functor)
                     if self.value == val:
-                        debug(f"    терм {other} приводится к числу {val} -> {subst}", indent=depth)
+                        debug(f"    term {other} coerces to number {val} -> {subst}", indent=depth)
                         return subst
                 except:
                     pass
-            debug(f"    числа/термы не равны -> None", indent=depth)
+            debug(f"    numbers/terms not equal -> None", indent=depth)
             return None
 
-        # Если other - число
+        # If other is a number
         if isinstance(other, Number):
-            debug(f"  other - число {other.value}", indent=depth)
+            debug(f"  other is number {other.value}", indent=depth)
             return other.unify_strict(self, subst, depth + 1, occurs_check)
 
-        # Если оба - обычные термы
+        # If both are ordinary terms
         if isinstance(self, Term) and isinstance(other, Term):
-            # Специальная обработка списков
+            # Special handling of lists
             if self.functor == '.' and other.functor == '.':
-                debug(f"  унификация списков: {self} vs {other}", indent=depth)
+                debug(f"  list unification: {self} vs {other}", indent=depth)
                 head1, tail1 = self.arguments[0], self.arguments[1]
                 head2, tail2 = other.arguments[0], other.arguments[1]
-                debug(f"    голова1={head1}, голова2={head2}", indent=depth + 1)
-                debug(f"    хвост1={tail1}, хвост2={tail2}", indent=depth + 1)
+                debug(f"    head1={head1}, head2={head2}", indent=depth + 1)
+                debug(f"    tail1={tail1}, tail2={tail2}", indent=depth + 1)
                 subst1 = head1.unify_strict(head2, subst, depth + 1, occurs_check)
                 if subst1 is None:
-                    debug(f"    унификация голов не удалась -> None", indent=depth)
+                    debug(f"    head unification failed -> None", indent=depth)
                     return None
-                debug(f"    после унификации голов: {subst1}", indent=depth + 1)
+                debug(f"    after head unification: {subst1}", indent=depth + 1)
                 subst2 = tail1.unify_strict(tail2, subst1, depth + 1, occurs_check)
                 if subst2 is None:
-                    debug(f"    унификация хвостов не удалась -> None", indent=depth)
+                    debug(f"    tail unification failed -> None", indent=depth)
                     return None
-                debug(f"    унификация списков успешна -> {subst2}", indent=depth)
+                debug(f"    list unification succeeded -> {subst2}", indent=depth)
                 return subst2
 
-            # Обычные термы
-            debug(f"  оба - обычные термы: {self.functor}/{len(self.arguments)} vs {other.functor}/{len(other.arguments)}",
+            # Ordinary terms
+            debug(f"  both are ordinary terms: {self.functor}/{len(self.arguments)} vs {other.functor}/{len(other.arguments)}",
                   indent=depth)
             if self.functor != other.functor or len(self.arguments) != len(other.arguments):
-                debug(f"    функторы или арность не совпадают -> None", indent=depth)
+                debug(f"    functors or arities do not match -> None", indent=depth)
                 return None
 
             current_subst = subst.copy()
             for i, (arg1, arg2) in enumerate(zip(self.arguments, other.arguments)):
-                debug(f"    унификация аргумента {i}: {arg1} vs {arg2}", indent=depth + 1)
+                debug(f"    unifying argument {i}: {arg1} vs {arg2}", indent=depth + 1)
                 result = arg1.unify_strict(arg2, current_subst, depth + 1, occurs_check)
                 if result is None:
-                    debug(f"    аргумент {i} не унифицирован -> None", indent=depth + 1)
+                    debug(f"    argument {i} not unified -> None", indent=depth + 1)
                     return None
                 current_subst = result
-                debug(f"    подстановка после аргумента {i}: {current_subst}", indent=depth + 1)
+                debug(f"    substitution after argument {i}: {current_subst}", indent=depth + 1)
 
-            debug(f"  унификация термов успешна -> {current_subst}", indent=depth)
+            debug(f"  term unification succeeded -> {current_subst}", indent=depth)
             return current_subst
 
-        debug(f"  не удалось унифицировать -> None", indent=depth)
+        debug(f"  failed to unify -> None", indent=depth)
         return None
 
     def substitute(self, subst):
-        """Подстановка значений переменных (без защиты от циклов)"""
+        """Substitution of variable values (without cycle protection)"""
         if isinstance(subst, dict):
             if isinstance(self, Variable):
                 return self.substitute_from_dict(subst)
@@ -193,13 +194,13 @@ class Term:
         return self
 
     def substitute_from_dict(self, subst, visited=None):
-        """Подстановка из словаря с защитой от циклических ссылок"""
+        """Substitution from a dict with cycle protection"""
         if visited is None:
             visited = set()
         if isinstance(self, Variable):
             if self in subst:
                 if self in visited:
-                    # Циклическая ссылка – возвращаем переменную как есть
+                    # Cyclic reference — return the variable as is
                     return self
                 visited.add(self)
                 value = subst[self]
@@ -213,7 +214,7 @@ class Term:
         return self
 
     def is_list(self):
-        """Проверяет, является ли терм списком"""
+        """Checks whether the term is a list"""
         if self.functor == '[]' and len(self.arguments) == 0:
             return True
         elif self.functor == '.' and len(self.arguments) == 2:
@@ -221,7 +222,7 @@ class Term:
         return False
 
     def get_list_elements(self):
-        """Возвращает элементы списка, если терм является списком"""
+        """Returns the elements of the list if the term is a list"""
         elements = []
         current = self
         while isinstance(current, Term) and current.functor == '.' and len(current.arguments) == 2:
@@ -233,20 +234,20 @@ class Term:
             return None
 
     def __str__(self):
-        # Обработка конъюнкции
+        # Conjunction handling
         if self.functor == ',' and len(self.arguments) == 2:
             left = str(self.arguments[0])
             right = str(self.arguments[1])
             return f"{left}, {right}"
-        # Обработка дизъюнкции
+        # Disjunction handling
         if self.functor == ';' and len(self.arguments) == 2:
             left = str(self.arguments[0])
             right = str(self.arguments[1])
             return f"{left} ; {right}"
-        # Обработка отрицания
+        # Negation handling
         if self.functor == '\\+' and len(self.arguments) == 1:
             return f"\\+({self.arguments[0]})"
-        # Обработка арифметических операторов
+        # Arithmetic operator handling
         if self.functor in ['+', '-', '*', '/', 'is', '=', '=:=', r'=\=', '<', '>', '=<', '>='] and len(
                 self.arguments) == 2:
             left = str(self.arguments[0])
@@ -268,7 +269,7 @@ class Term:
                         self.functor, 10):
                     right = f"({right})"
             return f"{left} {self.functor} {right}"
-        # Обработка списков
+        # List handling
         if self.functor == '.' and len(self.arguments) == 2:
             elements = []
             current = self
@@ -279,7 +280,7 @@ class Term:
                 return '[' + ','.join(elements) + ']'
             else:
                 return '[' + ','.join(elements) + '|' + str(current) + ']'
-        # Обработка строк в кавычках
+        # Quoted string handling
         if len(self.arguments) == 0:
             functor_str = str(self.functor)
             if (functor_str.startswith("'") and functor_str.endswith("'")) or \
@@ -295,61 +296,61 @@ class Term:
 
 
 class Variable(Term):
-    """Переменная Prolog с оптимизированной унификацией (occurs_check по умолчанию выключен)"""
+    """Prolog variable with optimized unification (occurs_check disabled by default)"""
     __slots__ = ('name',)
 
     def __init__(self, name):
-        super().__init__(name, [])   # <-- вызываем конструктор Term для установки атрибутов
+        super().__init__(name, [])   # <-- call the Term constructor to set attributes
         self.name = name
 
     def unify_with(self, other, subst, depth=0, occurs_check=False):
         """
-        Унификация переменной с другим термом.
-        Параметр occurs_check включает проверку вхождения (по умолчанию False).
+        Unify a variable with another term.
+        The occurs_check parameter enables the occurrence check (default False).
 
-        Этот метод — внутренний для строгой унификации: он вызывается только
-        из Term.unify_strict и не уходит в кастомный унификатор.
+        This method is internal for strict unification: it is called only
+        from Term.unify_strict and does not go into the custom unifier.
         """
         debug(f"unify_with: {self.name} with {other}", indent=depth)
 
-        # Анонимная переменная всегда унифицируется
+        # An anonymous variable always unifies
         if self.name == "_":
-            debug(f"  анонимная переменная -> {subst}", indent=depth)
+            debug(f"  anonymous variable -> {subst}", indent=depth)
             return subst
 
-        # Если переменная уже имеет значение в подстановке
+        # If the variable already has a value in the substitution
         if self in subst:
-            debug(f"  переменная {self.name} уже связана со значением {subst[self]}", indent=depth)
+            debug(f"  variable {self.name} is already bound to {subst[self]}", indent=depth)
             res = subst[self].unify_strict(other, subst, depth + 1, occurs_check)
-            debug(f"  результат рекурсивной унификации: {res}", indent=depth)
+            debug(f"  recursive unification result: {res}", indent=depth)
             return res
 
-        # Если other - переменная, которая уже имеет значение
+        # If other is a variable that already has a value
         if isinstance(other, Variable) and other in subst:
-            debug(f"  other - переменная {other.name}, уже связана со значением {subst[other]}", indent=depth)
+            debug(f"  other is variable {other.name}, already bound to {subst[other]}", indent=depth)
             res = self.unify_with(subst[other], subst, depth + 1, occurs_check)
-            debug(f"  результат рекурсивной унификации: {res}", indent=depth)
+            debug(f"  recursive unification result: {res}", indent=depth)
             return res
 
-        # Если other - переменная, причём та же самая (по объекту или по имени)
+        # If other is a variable, and the very same one (by object or by name)
         if isinstance(other, Variable):
             if self is other or self.name == other.name:
-                debug(f"  унификация переменной {self.name} с самой собой -> {subst}", indent=depth)
+                debug(f"  unifying variable {self.name} with itself -> {subst}", indent=depth)
                 return subst
 
-        # Occurs-check – по умолчанию отключён для производительности
+        # Occurs-check — disabled by default for performance
         if occurs_check and self.occurs_in(other, subst):
-            debug(f"  occurs_check не пройден: {self.name} входит в {other}", indent=depth)
+            debug(f"  occurs_check failed: {self.name} occurs in {other}", indent=depth)
             return None
 
-        # Создаём новую подстановку
+        # Create a new substitution
         new_subst = subst.copy()
         new_subst[self] = other
-        debug(f"  создана новая подстановка: { {str(k):str(v) for k,v in new_subst.items()} }", indent=depth)
+        debug(f"  new substitution created: { {str(k):str(v) for k,v in new_subst.items()} }", indent=depth)
         return new_subst
 
     def occurs_in(self, term, subst):
-        """Проверка вхождения переменной в терм (используется только при occurs_check=True)"""
+        """Check if the variable occurs in the term (used only with occurs_check=True)"""
         if self is term:
             return False
         if self == term:
@@ -375,11 +376,11 @@ class Variable(Term):
 
 
 class Number(Term):
-    """Число в Prolog"""
+    """Prolog number"""
     __slots__ = ('value',)
 
     def __init__(self, value):
-        super().__init__(str(value), [])   # <-- вызываем конструктор Term
+        super().__init__(str(value), [])   # <-- call the Term constructor
         self.value = value
 
     def __str__(self):
@@ -415,7 +416,7 @@ class Number(Term):
 
 
 class Rule:
-    """Правило Prolog"""
+    """Prolog rule"""
     __slots__ = ('head', 'body')
 
     def __init__(self, head, body):

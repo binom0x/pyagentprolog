@@ -1,51 +1,53 @@
 """prolog/arith_numba.py — Numba-accelerated arithmetic evaluation.
 
-Рассчитано на слабое железо (ARM, Raspberry Pi, ROS-ноды).
+Designed for low-power hardware (ARM, Raspberry Pi, ROS nodes).
 
-Принцип работы:
-  * Терм Prolog компилируется в плоские numpy-массивы ОДИН раз
-    (кэш по id(term) с сильной ссылкой на сам Term).
-  * JIT-ядро — нерекурсивная стек-машина. Работает на любых версиях
-    Numba и любых ARM-вариантах (включая 32-битный ARMv7, если Numba
-    ещё поддерживает платформу).
-  * Вычисления идут во float64; результат приводится к int, если все
-    листья были целочисленными и значение целое.
-  * Ошибки (незаполненная переменная, деление на ноль, домен) поднимаются
-    на Python-границе как PrologError.
-  * Любой сбой Numba (импорт, JIT, неизвестная операция) → тихий
-    fallback на чистый Python. Модуль никогда не ломает движок.
+How it works:
+  * A Prolog term is compiled into flat numpy arrays ONCE
+    (cached by id(term) with a strong reference to the Term itself).
+  * The JIT kernel is a non-recursive stack machine. It runs on any
+    version of Numba and any ARM variant (including 32-bit ARMv7, if
+    Numba still supports the platform).
+  * Computations are done in float64; the result is coerced to int if
+    all leaves were integers and the value is integral.
+  * Errors (unbound variable, division by zero, domain) are raised at
+    the Python boundary as PrologError.
+  * Any Numba failure (import, JIT, unknown operation) → silent
+    fallback to pure Python. The module never breaks the engine.
 
 Hot-path API:
-  try_eval_fast(expr, subst) — единая точка входа.
-    Возвращает:
-      * число (int/float)     — успешное вычисление через JIT;
-      * NOT_ATTEMPTED         — Numba не применима (мелкое дерево, отключена,
-                                неизвестная операция, JIT уже падал);
-      * бросает PrologError   — семантическая ошибка (незаполненная
-                                переменная, деление на ноль и т.п.).
+  try_eval_fast(expr, subst) — the single entry point.
+    Returns:
+      * a number (int/float) — successful computation through JIT;
+      * NOT_ATTEMPTED        — Numba not applicable (small tree, disabled,
+                               unknown operation, JIT already failed);
+      * raises PrologError   — semantic error (unbound variable,
+                               division by zero, etc.).
 
-  Никаких RLock/OrderedDict/move_to_end: под GIL dict.get и dict.__setitem__
-  атомарны, а при переполнении кэш очищается целиком. Это устраняет
-  ~400 нс overhead на каждый cache hit, что на arith_batch_5000 (50 000
-  вызовов) даёт заметную разницу.
+  No RLock/OrderedDict/move_to_end: under the GIL, dict.get and
+  dict.__setitem__ are atomic, and on overflow the cache is cleared
+  entirely. This eliminates ~400 ns of overhead on every cache hit,
+  which on arith_batch_5000 (50,000 calls) makes a noticeable difference.
 
-ARM-специфика:
-  * Порог включения Numba выше на ARM/32-бит (JIT-overhead больше).
-  * `cache=True` — повторный старт процесса не тратит время на компиляцию.
-  * `warmup_arith_numba()` — пред-компиляция на старте.
-  * `fastmath=True` — только по env-переменной, чтобы не менять FP.
-  * Никакого `prange` — 32-битный ARM его не поддерживает, а для одного
-    дерева он и не нужен.
+ARM specifics:
+  * The Numba enable threshold is higher on ARM/32-bit (JIT overhead
+    is larger).
+  * `cache=True` — a subsequent process start does not waste time
+    recompiling.
+  * `warmup_arith_numba()` — pre-compilation at startup.
+  * `fastmath=True` — only via env variable to avoid changing FP.
+  * No `prange` — 32-bit ARM does not support it, and for a single tree
+    it is not needed anyway.
 
-Переменные окружения:
-  PROLOG_NUMBA_THRESHOLD=N   порог по числу узлов (по умолчанию 20/30/40)
-  PROLOG_NUMBA_FASTMATH=1    включить fastmath (может менять FP-результаты)
-  PROLOG_NUMBA_CACHE=N       размер кэша вердиктов (по умолчанию 10000)
-  PROLOG_NUMBA_DISABLE=1     полностью отключить (для отладки)
+Environment variables:
+  PROLOG_NUMBA_THRESHOLD=N   node-count threshold (default 20/30/40)
+  PROLOG_NUMBA_FASTMATH=1    enable fastmath (may change FP results)
+  PROLOG_NUMBA_CACHE=N       verdict cache size (default 10000)
+  PROLOG_NUMBA_DISABLE=1     disable completely (for debugging)
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 from __future__ import annotations
@@ -62,7 +64,7 @@ from prolog.terms import Term, Variable, Number
 
 
 # =====================================================================
-# Доступность Numba
+# Numba availability
 # =====================================================================
 _NUMBA_AVAILABLE = False
 _NUMBA_VERSION: tuple = (0, 0, 0)
@@ -76,7 +78,7 @@ except ImportError:
 
 
 # =====================================================================
-# Определение платформы
+# Platform detection
 # =====================================================================
 _MACHINE = platform.machine().lower()
 _IS_ARM = 'arm' in _MACHINE or 'aarch' in _MACHINE
@@ -101,9 +103,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-# Порог по числу узлов: ниже — Python быстрее, выше — Numba быстрее.
+# Node-count threshold: below — Python is faster, above — Numba is faster.
 if _IS_CONSTRAINED and not _IS_64BIT:
-    _DEFAULT_THRESHOLD = 40         # 32-bit ARM: JIT-call дорогой
+    _DEFAULT_THRESHOLD = 40         # 32-bit ARM: JIT-call is expensive
 elif _IS_CONSTRAINED:
     _DEFAULT_THRESHOLD = 30         # 64-bit ARM
 else:
@@ -116,25 +118,25 @@ _DISABLED = _env_bool('PROLOG_NUMBA_DISABLE', False)
 
 
 # =====================================================================
-# Публичные sentinel и флаг активности
+# Public sentinel and activity flag
 # =====================================================================
-# Единый sentinel вместо None: позволяет вызывающей стороне отличить
-# «Numba не применима» от «результат = None» (последнего не бывает, но
-# явный sentinel делает проверку `is not NOT_ATTEMPTED` однозначной).
+# A single sentinel instead of None: lets the caller distinguish
+# "Numba not applicable" from "result = None" (the latter never happens,
+# but an explicit sentinel makes the check `is not NOT_ATTEMPTED` unambiguous).
 NOT_ATTEMPTED = object()
 
-# Активность Numba в изменяемом контейнере: позволяет отключать из hot path
-# без ключевого слова global и без гонок (под GIL list.__setitem__ атомарен).
+# Activity of Numba in a mutable container: allows disabling from the hot path
+# without the global keyword and without races (under the GIL, list.__setitem__ is atomic).
 _numba_active: List[bool] = [True]
 
 
 def _deactivate_numba() -> None:
-    """Отключает Numba на весь процесс. Вызывается при первом сбое JIT."""
+    """Disables Numba for the entire process. Called on the first JIT failure."""
     _numba_active[0] = False
 
 
 # =====================================================================
-# Коды операций
+# Operation codes
 # =====================================================================
 OP_NUM = 0
 OP_VAR = 1
@@ -195,12 +197,12 @@ _BINARY_OPS = {
 
 
 # =====================================================================
-# JIT-ядро — нерекурсивная стек-машина
+# JIT kernel — non-recursive stack machine
 # =====================================================================
 if _NUMBA_AVAILABLE:
     @njit(cache=True, nogil=True, fastmath=_USE_FASTMATH)
     def _eval_kernel(ops, a1, a2, nv, vv, root, stack_size):
-        """Нерекурсивная стек-машина. См. описание в докстринге модуля."""
+        """Non-recursive stack machine. See the module docstring."""
         node_stk = np.empty(stack_size, dtype=np.int64)
         val_stk = np.empty(stack_size, dtype=np.float64)
         nsp = 0
@@ -322,13 +324,13 @@ else:
 
 
 # =====================================================================
-# Ограниченный итеративный подсчёт узлов
+# Bounded iterative node counting
 # =====================================================================
 def _count_nodes_bounded(term, limit: int) -> int:
-    """Ограниченный подсчёт узлов. Останавливается при count > limit.
+    """Bounded node counting. Stops when count > limit.
 
-    Возвращает либо точный размер (если дерево < limit), либо любое
-    число > limit. Вызывается ТОЛЬКО на cache miss — один раз на терм.
+    Returns either the exact size (if the tree < limit) or any
+    number > limit. Called ONLY on cache miss — once per term.
     """
     count = 0
     stack = [term]
@@ -343,7 +345,7 @@ def _count_nodes_bounded(term, limit: int) -> int:
 
 
 # =====================================================================
-# Компиляция Term → плоские массивы
+# Compilation: Term → flat arrays
 # =====================================================================
 class _CompiledArith:
     __slots__ = ('ops', 'a1', 'a2', 'nv', 'var_objs', 'root',
@@ -361,10 +363,10 @@ class _CompiledArith:
 
 
 def _compile_term(term: Term) -> _CompiledArith:
-    """Разбирает арифметический терм в плоские массивы.
+    """Decomposes an arithmetic term into flat arrays.
 
-    Бросает ValueError/TypeError на неподдерживаемых конструкциях —
-    вызывающая сторона ловит и кэширует None, чтобы больше не пытаться.
+    Raises ValueError/TypeError on unsupported constructs —
+    the caller catches and caches None so it is not tried again.
     """
     ops: List[int] = []
     a1: List[int] = []
@@ -448,25 +450,25 @@ def _compile_term(term: Term) -> _CompiledArith:
 
 
 # =====================================================================
-# Единый кэш вердиктов (маленькое дерево ИЛИ скомпилированный объект)
+# Single verdict cache (small tree OR compiled object)
 # =====================================================================
 # id(term) -> (term, _CompiledArith | None)
 #
-# Без RLock, без OrderedDict, без move_to_end. Под GIL dict.get и
-# dict.__setitem__ атомарны. При переполнении кэш очищается целиком —
-# простое вытеснение, приемлемое для LRU-подобного сценария.
+# No RLock, no OrderedDict, no move_to_end. Under the GIL, dict.get and
+# dict.__setitem__ are atomic. On overflow the cache is cleared entirely —
+# a simple eviction, acceptable for an LRU-like scenario.
 #
-# Сильная ссылка на term в значении удерживает объект живым, поэтому
-# id не может быть переиспользован другим объектом, пока запись в кэше.
+# A strong reference to term in the value keeps the object alive, so the
+# id cannot be reused by another object while the entry is in the cache.
 _fast_cache: Dict[int, tuple] = {}
 
 
 def _get_or_compile(term) -> Optional[_CompiledArith]:
-    """Возвращает скомпилированное дерево или None (мелкое / некомпилируемое).
+    """Returns the compiled tree, or None (small / non-compilable).
 
-    На первом вызове для данного id делает один обход (pre-check) и,
-    если нужно, компиляцию. Результат кэшируется — включая вердикт None
-    для мелких деревьев, чтобы не обходить их повторно.
+    On the first call for a given id, it performs one traversal (pre-check)
+    and, if needed, compilation. The result is cached — including the None
+    verdict for small trees, so they are not traversed again.
     """
     tid = id(term)
     entry = _fast_cache.get(tid)
@@ -489,13 +491,13 @@ def _get_or_compile(term) -> Optional[_CompiledArith]:
 
 
 # =====================================================================
-# Резолв переменных в рантайме
+# Runtime variable resolution
 # =====================================================================
 def _resolve_vars(var_objs: List[Variable], subst: Dict) -> np.ndarray:
-    """Строит float64-массив значений переменных.
+    """Builds the float64 array of variable values.
 
-    Незаполненная переменная или переменная, связанная с не-Number,
-    приводит к PrologError.
+    An unbound variable or a variable bound to a non-Number raises
+    PrologError.
     """
     from prolog.predicates import PrologError, evaluate_expression
 
@@ -528,21 +530,21 @@ def _resolve_vars(var_objs: List[Variable], subst: Dict) -> np.ndarray:
 
 
 # =====================================================================
-# Низкоуровневое вычисление скомпилированного дерева
+# Low-level evaluation of a compiled tree
 # =====================================================================
 def _eval_compiled(compiled: _CompiledArith, subst: Dict, expr):
-    """Вычисляет заранее скомпилированное дерево.
+    """Evaluates a precompiled tree.
 
-    Предполагается, что вызывающая сторона уже проверила:
+    Assumes the caller already checked:
       * compiled is not None,
-      * Numba активна.
+      * Numba is active.
 
-    Возвращает число (int/float).
-    Бросает PrologError при семантической ошибке.
-    При сбое JIT — деактивирует Numba и бросает RuntimeError (его
-    вызывающая сторона проглотит и уйдёт в Python-путь).
+    Returns a number (int/float).
+    Raises PrologError on semantic error.
+    On JIT failure — deactivates Numba and raises RuntimeError (the caller
+    swallows it and falls back to the Python path).
     """
-    # Резолв переменных — может бросить PrologError, это нормально
+    # Variable resolution — may raise PrologError, that is fine
     vv = _resolve_vars(compiled.var_objs, subst)
 
     stack_size = compiled.n_nodes + 10
@@ -555,7 +557,7 @@ def _eval_compiled(compiled: _CompiledArith, subst: Dict, expr):
         _deactivate_numba()
         raise RuntimeError("JIT kernel failed: %s" % (e,))
 
-    # NaN — маркер ошибки (деление на 0, log<0, sqrt<0 и т.п.)
+    # NaN — error marker (division by 0, log<0, sqrt<0, etc.)
     if result != result:
         from prolog.predicates import PrologError
         raise PrologError('evaluation_error', 'undefined_result', expr)
@@ -571,22 +573,22 @@ def _eval_compiled(compiled: _CompiledArith, subst: Dict, expr):
 # Hot-path API
 # =====================================================================
 def try_eval_fast(expr, subst):
-    """Единая точка входа для быстрого пути.
+    """The single entry point for the fast path.
 
-    Возвращает:
-      * число (int/float)   — успешное вычисление через JIT;
-      * NOT_ATTEMPTED       — Numba не применима (мелкое дерево,
-                              отключена, JIT уже падал, неизвестная операция);
-      * бросает PrologError — семантическая ошибка (незаполненная
-                              переменная, деление на ноль и т.п.).
+    Returns:
+      * a number (int/float) — successful computation through JIT;
+      * NOT_ATTEMPTED        — Numba not applicable (small tree,
+                               disabled, JIT already failed, unknown op);
+      * raises PrologError   — semantic error (unbound variable,
+                               division by zero, etc.).
 
-    Логика:
-      1. Быстрая проверка флага активности — один list-index.
+    Logic:
+      1. Fast activity-flag check — a single list-index.
       2. dict.get(id(expr)) — O(1).
-      3. Если запись есть и compiled is not None → сразу JIT.
-         Если есть и compiled is None → NOT_ATTEMPTED (мелкое дерево).
-         Если записи нет → _get_or_compile (один обход + опциональная
-         компиляция) → JIT или NOT_ATTEMPTED.
+      3. If an entry exists and compiled is not None → JIT directly.
+         If it exists and compiled is None → NOT_ATTEMPTED (small tree).
+         If no entry → _get_or_compile (one traversal + optional
+         compilation) → JIT or NOT_ATTEMPTED.
     """
     if not _numba_active[0] or _DISABLED:
         return NOT_ATTEMPTED
@@ -600,16 +602,16 @@ def try_eval_fast(expr, subst):
             return NOT_ATTEMPTED
         return _eval_compiled(compiled, subst, expr)
 
-    # Cache miss — полный путь
+    # Cache miss — full path
     compiled = _get_or_compile(expr)
     if compiled is None:
         return NOT_ATTEMPTED
     return _eval_compiled(compiled, subst, expr)
 
 
-# Совместимость со старым именем (на случай, если кто-то ещё его импортирует)
+# Compatibility with the old name (in case anyone still imports it)
 def evaluate_expression_numba(expr, subst):
-    """Устаревшая обёртка. Используйте try_eval_fast."""
+    """Deprecated wrapper. Use try_eval_fast."""
     r = try_eval_fast(expr, subst)
     if r is NOT_ATTEMPTED:
         return None
@@ -617,18 +619,18 @@ def evaluate_expression_numba(expr, subst):
 
 
 # =====================================================================
-# Прогрев и диагностика
+# Warmup and diagnostics
 # =====================================================================
 def warmup_arith_numba() -> bool:
-    """Прогревает JIT-ядро, чтобы первый реальный запрос не «залипал».
+    """Warms up the JIT kernel so that the first real query does not "hang".
 
-    Рекомендуется вызвать один раз на старте приложения — особенно на ARM,
-    где первая JIT-компиляция может занять несколько секунд.
+    It is recommended to call this once at application startup — especially
+    on ARM, where the first JIT compilation may take several seconds.
     """
     if _DISABLED or not _NUMBA_AVAILABLE or not _numba_active[0]:
         return False
 
-    # Бинарная ветка: 1 + 1
+    # Binary branch: 1 + 1
     ops = np.array([OP_NUM, OP_NUM, OP_ADD], dtype=np.int64)
     a1 = np.array([-1, -1, 0], dtype=np.int64)
     a2 = np.array([-1, -1, 1], dtype=np.int64)
@@ -640,7 +642,7 @@ def warmup_arith_numba() -> bool:
         _deactivate_numba()
         return False
 
-    # Унарная ветка
+    # Unary branch
     ops = np.array([OP_NUM, OP_NEG], dtype=np.int64)
     a1 = np.array([-1, 0], dtype=np.int64)
     a2 = np.array([-1, -1], dtype=np.int64)
@@ -654,7 +656,7 @@ def warmup_arith_numba() -> bool:
 
 
 def arith_numba_status() -> Dict[str, Any]:
-    """Снимок текущего состояния Numba-пути (для диагностики)."""
+    """Snapshot of the current state of the Numba path (for diagnostics)."""
     return {
         'available': bool(_NUMBA_AVAILABLE),
         'active': bool(_numba_active[0]),

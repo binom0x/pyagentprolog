@@ -1,87 +1,86 @@
 # PyAgentProlog
 
-Prolog-движок на Python с трассировкой доказательств, агентами на Python-действиях,
-экспертной системой и семантической унификацией на эмбеддингах.
+A Prolog engine in Python with proof tracing, agents based on Python actions, an expert system, and semantic unification on embeddings.
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Автор
+## Author
 
-Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+Andrey Vorfolomeev (Andrey Viktorovich Vorfolomeev)
 
-## Возможности
+## Features
 
-- **Ядро Prolog**: парсер, итеративный решатель с TCO (tail-call optimization),
-  отсечение (`!`), `if-then-else`, индексация правил по первому аргументу.
-- **Трассировка доказательств** — дерево вывода с унификациями и правилами.
-- **Numba-ускорение арифметики** — нерекурсивная стек-машина, работает на ARM/Raspberry Pi.
-- **Агенты** — Python-функции как встроенные предикаты (`@simple_action`,
+- **Prolog core**: parser, iterative solver with TCO (tail-call optimization),
+  cut (`!`), `if-then-else`, rule indexing by the first argument.
+- **Proof tracing** — an inference tree with unifications and rules.
+- **Numba-accelerated arithmetic** — a non-recursive stack machine, runs on ARM/Raspberry Pi.
+- **Agents** — Python functions as built-in predicates (`@simple_action`,
   `@effector_action`, `@generator_action`).
-- **Экспертная система** — диалоговый режим, извлечение условий из естественного языка
-  через `pymorphy3`, разрешение противоречий, глоссарий.
-- **Семантическая унификация** — сопоставление атомов через эмбеддинги
-  (Ollama или sentence-transformers).
-- **Интеграция с LangChain** — `PrologChain` как `Runnable` в LCEL-цепочках.
-- **Gradio-сессии** — для интерактивных UI.
+- **Expert system** — interactive mode, extraction of conditions from natural language
+  via `pymorphy3`, contradiction resolution, glossary.
+- **Semantic unification** — matching atoms via embeddings
+ (Ollama or sentence-transformers).
+- **Integration with LangChain** — `PrologChain` as `Runnable` in LCEL chains.
+- **Gradio sessions** — for interactive UIs.
 
-## Установка
+## Installation
 
-### Базовая (только ядро)
+### Basic (core only)
 
 ```bash
 pip install pyagentprolog
 ```
 
-### С дополнительными возможностями
+### With additional features
 
 ```bash
-# Numba-ускорение арифметики
+# Numba acceleration for arithmetic
 pip install pyagentprolog[numba]
 
-# Семантическая унификация
+# Semantic unification
 pip install pyagentprolog[embeddings]
 
 # LangChain
 pip install pyagentprolog[langchain]
 
-# Экспертная система (pymorphy3)
+# Expert system (pymorphy2)
 pip install pyagentprolog[expert]
 
-# Всё сразу
+# Everything at once
 pip install pyagentprolog[all]
 ```
 
-## Быстрый старт
+## Quick start
 
-### Простой запрос
+### Simple query
 
 ```python
 from prolog import Solver
 
 program = """
-родитель(иван, алексей).
-родитель(алексей, петр).
+parent(ivan, alexey).
+parent(alexey, petr).
 
-дедушка(Д, В) :-
-    родитель(Д, Р),
-    родитель(Р, В).
+grandfather(D, V) :-
+    parent(D, R),
+    parent(R, V).
 """
 
 solver = Solver(program)
-solutions = solver.find_solutions("дедушка(иван, X).")
-print(solutions)  # [{'X': 'петр'}]
+solutions = solver.find_solutions("grandfather(ivan, X).")
+print(solutions)  # [{'X': 'petr'}]
 ```
 
-### Трассировка доказательства
+### Proof trace
 
 ```python
-solutions, explanation = solver.find_solutions("дедушка(иван, X).",
+solutions, explanation = solver.find_solutions("grandfather(ivan, X).",
                                                 with_explanation=True)
 print(solver.get_explanation())
 ```
 
-### Агент с Python-действиями
+### Agent with Python actions
 
 ```python
 from prolog import Agent, simple_action
@@ -93,28 +92,26 @@ def add(a, b, context=None):
 agent = Agent(program="run(X) :- add(2, 3, X).")
 agent.register_action(add)
 print(agent.query_one("run(X)."))  # {'X': 5}
-```
 
-### Экспертная система
+### Expert System
 
-Требует pyagentprolog[expert]
+Requires pyagentprolog[expert]
 
 ```python
 from prolog import Expert
 
 expert = Expert(domain_file="knowledge.pl", use_pymorphy=True)
-answer = expert.ask("я хочу учиться программированию")
+answer = expert.ask("I want to learn programming")
 print(answer)
 ```
 
-## Требования
+## Requirements
 
 - Python 3.9+
-- Обязательно: `numpy`
-- Опционально: `numba`, `langchain-core`, `sentence-transformers`,
-  `langchain-ollama`, `gradio`, `pymorphy3`
+- Mandatory: `numpy`
+- Optional: `numba`, `langchain-core`, `sentence-transformers`,
+  `langchain-ollama`, `gradio`, `pymorphy2`
 
-## Лицензия
+## License
 
-MIT — см. файл [LICENSE](LICENSE).
-
+MIT — see the [LICENSE](LICENSE) file.

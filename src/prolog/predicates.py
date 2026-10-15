@@ -1,21 +1,21 @@
 """ PyAgentProlog
 
-Модуль для встроенных предикатов (оптимизирован: все предикаты возвращают генераторы,
-убраны лишние копирования подстановок).
+Module for built-in predicates (optimized: all predicates return generators,
+redundant substitution copies removed).
 
-Добавлены предикаты управления семантической унификацией:
+Added predicates for managing semantic unification:
     semantic_on/0, semantic_on/1, semantic_off/0,
     semantic_threshold/1, semantic_status/1.
 
-Арифметика evaluate_expression теперь имеет быстрый путь через Numba
-(см. prolog/arith_numba.py). Hot-path вызов идёт через try_eval_fast,
-который на cache hit возвращает результат или sentinel NOT_ATTEMPTED
-за один dict lookup. Если Numba недоступна или выражение слишком
-маленькое — используется чистый Python-обход.
+Arithmetic evaluate_expression now has a fast path through Numba
+(see prolog/arith_numba.py). The hot-path call goes through try_eval_fast,
+which on a cache hit returns the result or the sentinel NOT_ATTEMPTED
+in a single dict lookup. If Numba is unavailable or the expression is
+too small — a pure-Python traversal is used.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1 (findall/bagof/setof больше не глотают исключения)
+version 1.0.1 (findall/bagof/setof no longer swallow exceptions)
 """
 
 import math
@@ -23,17 +23,17 @@ from typing import List, Dict, Any, Optional, Callable, Set, Tuple, Iterator, Ge
 from collections.abc import Iterable
 from prolog.terms import Term, Variable, Number
 
-# Для аннотаций
+# For annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from prolog.interpreter import Database
 
 
 # =====================================================================
-# Опциональное Numba-ускорение арифметики.
-# Модуль arith_numba.py сам решает, доступна ли Numba и подходит ли
-# платформа. Если что-то не так — try_eval_fast всегда вернёт sentinel
-# NOT_ATTEMPTED, и мы спокойно уйдём в Python-путь.
+# Optional Numba acceleration of arithmetic.
+# Module arith_numba.py itself decides whether Numba is available and
+# whether the platform is suitable. If something is off — try_eval_fast
+# always returns the NOT_ATTEMPTED sentinel, and we safely take the Python path.
 # =====================================================================
 try:
     from prolog.arith_numba import (
@@ -58,14 +58,14 @@ except Exception:
 
 
 # ----------------------------------------------------------------------
-# Вспомогательная функция для печати непойманных исключений из
-# мета-предикатов (findall/bagof/setof/call/once/forall).
+# Helper function to print uncaught exceptions from
+# meta-predicates (findall/bagof/setof/call/once/forall).
 # ----------------------------------------------------------------------
 def _reraise_unexpected(where: str, goal_repr, exc: BaseException) -> None:
-    """Печатает traceback и пробрасывает исключение дальше.
+    """Prints the traceback and re-raises the exception.
 
-    Используется в мета-предикатах, чтобы не превращать настоящую ошибку
-    (TypeError из Python-действия, AttributeError и т.п.) в тихий fail.
+    Used in meta-predicates to avoid turning a genuine error
+    (TypeError from a Python action, AttributeError, etc.) into a silent fail.
     """
     import traceback
     print(f"[{where}] unexpected {type(exc).__name__} in Goal={goal_repr}: {exc}")
@@ -74,7 +74,7 @@ def _reraise_unexpected(where: str, goal_repr, exc: BaseException) -> None:
 
 
 class Predicate:
-    """Базовый класс для предикатов"""
+    """Base class for predicates"""
     __slots__ = ('name', 'arity', 'func')
     
     def __init__(self, name: str, arity: int, func: Optional[Callable] = None):
@@ -83,12 +83,12 @@ class Predicate:
         self.func = func
     
     def execute(self, goal: Term, database, subst: Dict, depth: int) -> Iterator[Dict]:
-        """Выполнение предиката (возвращает генератор)"""
+        """Execute the predicate (returns a generator)"""
         if self.func:
             result = self.func(goal, database, subst, depth)
             if result is None:
                 return
-            # Если result - итерируемый объект (кроме строк и термов), то выдаём элементы
+            # If result is an iterable (other than strings and terms), yield elements
             if isinstance(result, (list, tuple)):
                 yield from result
             elif isinstance(result, Iterable) and not isinstance(result, (str, Term)):
@@ -102,7 +102,7 @@ class Predicate:
 
 
 # ----------------------------------------------------------------------
-# Декоратор для регистрации пользовательских предикатов
+# Decorator for registering user-defined predicates
 # ----------------------------------------------------------------------
 def prolog_predicate(name: str, arity: int):
     def decorator(func):
@@ -114,24 +114,24 @@ def prolog_predicate(name: str, arity: int):
 
 
 # ----------------------------------------------------------------------
-# Исключения
+# Exceptions
 # ----------------------------------------------------------------------
 class RepeatException(Exception):
-    """Исключение для реализации repeat/0"""
+    """Exception for implementing repeat/0"""
     def __init__(self, subst):
         self.subst = subst
         super().__init__(subst)
 
 
 class CutException(Exception):
-    """Исключение, возникающее при выполнении отсечения (!). Содержит подстановку."""
+    """Exception raised when a cut (!) is executed. Contains the substitution."""
     def __init__(self, subst):
         self.subst = subst
         super().__init__(subst)
 
 
 class PrologError(Exception):
-    """Исключение для ошибок выполнения Prolog (ISO style)."""
+    """Exception for Prolog execution errors (ISO style)."""
     def __init__(self, error_type, detail, term=None):
         self.error_type = error_type
         self.detail = detail
@@ -140,10 +140,10 @@ class PrologError(Exception):
 
 
 # ----------------------------------------------------------------------
-# Вспомогательные функции
+# Helper functions
 # ----------------------------------------------------------------------
 def _safe_math(func, *args, term=None):
-    """Обёртка для безопасного вычисления математических функций с генерацией PrologError."""
+    """Wrapper for safely evaluating math functions, raising PrologError."""
     try:
         result = func(*args)
         if isinstance(result, complex):
@@ -157,21 +157,21 @@ def _safe_math(func, *args, term=None):
 
 
 def evaluate_expression(expr: Term, subst: Dict) -> Any:
-    """Вычисление арифметического выражения.
+    """Evaluate an arithmetic expression.
 
-    Быстрый путь: если размер дерева достаточен и Numba активна — дерево
-    компилируется один раз в плоские numpy-массивы, дальше вычисление идёт
-    в JIT-ядре (нерекурсивная стек-машина, работает и на ARM).
+    Fast path: if the tree is large enough and Numba is active — the tree
+    is compiled once into flat numpy arrays, and then computation runs
+    in the JIT kernel (non-recursive stack machine, works on ARM as well).
 
-    Hot-path вызов идёт через try_eval_fast:
-      * на cache hit — один dict lookup;
-      * на cache miss — pre-check + опциональная компиляция;
-      * sentinel NOT_ATTEMPTED означает «иди в Python-путь».
+    The hot-path call goes through try_eval_fast:
+      * on cache hit — a single dict lookup;
+      * on cache miss — pre-check + optional compilation;
+      * the NOT_ATTEMPTED sentinel means "take the Python path".
 
-    Малые деревья и все случаи сбоя Numba идут через чистый Python-обход,
-    который сохраняет точное поведение (включая тип ошибок).
+    Small trees and all Numba-failure cases go through a pure Python
+    traversal that preserves exact behavior (including error types).
     """
-    # --- Быстрый путь через Numba (только для больших деревьев) ---
+    # --- Fast path through Numba (only for large trees) ---
     if _ARITH_NUMBA_AVAILABLE:
         try:
             fast = _try_eval_fast(expr, subst)
@@ -180,10 +180,10 @@ def evaluate_expression(expr: Term, subst: Dict) -> Any:
         except PrologError:
             raise
         except Exception:
-            # Любой непредвиденный сбой Numba — тихо уходим в Python.
+            # Any unexpected Numba failure — silently go to Python.
             pass
 
-    # --- Чистый Python-путь ---
+    # --- Pure Python path ---
     if isinstance(expr, Number):
         return expr.value
 
@@ -224,7 +224,7 @@ def evaluate_expression(expr: Term, subst: Dict) -> Any:
         arg = evaluate_expression(expr.arguments[0], subst)
         return -arg
 
-    # Унарные арифметические функции
+    # Unary arithmetic functions
     UNARY = {
         'abs': lambda x: abs(x),
         'sign': lambda x: -1 if x < 0 else (1 if x > 0 else 0),
@@ -247,7 +247,7 @@ def evaluate_expression(expr: Term, subst: Dict) -> Any:
             arg = evaluate_expression(expr.arguments[0], subst)
             return _safe_math(UNARY[expr.functor], arg, term=expr)
 
-    # Бинарные арифметические функции
+    # Binary arithmetic functions
     BINARY = {
         'max': lambda x, y: max(x, y),
         'min': lambda x, y: min(x, y),
@@ -295,7 +295,7 @@ def _term_to_rule(term: Term):
 
 
 def _list_to_python(lst_term: Term):
-    """Преобразует Prolog-список в Python-список термов (включая переменные)."""
+    """Converts a Prolog list into a Python list of terms (including variables)."""
     elements = []
     current = lst_term
     while isinstance(current, Term) and current.functor == '.' and len(current.arguments) == 2:
@@ -308,7 +308,7 @@ def _list_to_python(lst_term: Term):
 
 
 def _build_prolog_list(items: List[Term]) -> Term:
-    """Строит Prolog-список из списка термов."""
+    """Builds a Prolog list from a list of terms."""
     result = Term('[]')
     for item in reversed(items):
         result = Term('.', [item, result])
@@ -316,7 +316,7 @@ def _build_prolog_list(items: List[Term]) -> Term:
 
 
 def _term_to_string(term: Term) -> str:
-    """Извлекает строковое содержимое из Prolog-терма (атома или строки в кавычках)."""
+    """Extracts the string content from a Prolog term (an atom or a quoted string)."""
     if isinstance(term, Number):
         return str(term.value)
     if isinstance(term, Term) and not term.arguments:
@@ -329,7 +329,7 @@ def _term_to_string(term: Term) -> str:
 
 
 def _string_to_term(s: str, quoted: bool = True) -> Term:
-    """Преобразует Python-строку в Prolog-терм (строку в двойных кавычках или атом)."""
+    """Converts a Python string into a Prolog term (a double-quoted string or atom)."""
     if quoted:
         return Term(f'"{s}"')
     else:
@@ -337,7 +337,7 @@ def _string_to_term(s: str, quoted: bool = True) -> Term:
 
 
 def _collect_variables(term: Term) -> Set[Variable]:
-    """Собирает все переменные в терме (кроме анонимных)."""
+    """Collects all variables in a term (except anonymous ones)."""
     vars_set = set()
     def collect(t):
         if isinstance(t, Variable):
@@ -351,7 +351,7 @@ def _collect_variables(term: Term) -> Set[Variable]:
 
 
 def _extract_existential(goal: Term, subst: Dict) -> Tuple[Set[Variable], Term]:
-    """Разбирает терм, извлекая экзистенциальные переменные '^'."""
+    """Parses a term, extracting existential '^' variables."""
     existential = set()
     current = goal
     while isinstance(current, Term) and current.functor == '^' and len(current.arguments) == 2:
@@ -367,7 +367,7 @@ def _extract_existential(goal: Term, subst: Dict) -> Tuple[Set[Variable], Term]:
 
 
 def _is_ground(term: Term, subst: Dict) -> bool:
-    """Проверяет, не содержит ли терм переменных (полностью связан)."""
+    """Checks whether the term contains no variables (fully bound)."""
     term = term.substitute(subst)
     if isinstance(term, Variable):
         return False
@@ -377,7 +377,7 @@ def _is_ground(term: Term, subst: Dict) -> bool:
 
 
 def is_identical(term1, term2):
-    """Проверяет, являются ли два терма идентичными (без подстановки)."""
+    """Checks whether two terms are identical (without substitution)."""
     if term1 is term2:
         return True
     if isinstance(term1, Variable) and isinstance(term2, Variable):
@@ -394,7 +394,7 @@ def is_identical(term1, term2):
 
 
 def standard_order(term1, term2):
-    """Стандартный порядок термов."""
+    """Standard order of terms."""
     if isinstance(term1, Variable) and isinstance(term2, Variable):
         if term1.name < term2.name:
             return -1
@@ -439,11 +439,11 @@ def standard_order(term1, term2):
 
 
 # ======================================================================
-# ВСТРОЕННЫЕ ПРЕДИКАТЫ
+# BUILT-IN PREDICATES
 # ======================================================================
 
 # ----------------------------------------------------------------------
-# Арифметические и сравнивающие предикаты
+# Arithmetic and comparison predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('is', 2)
 def builtin_is(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -552,11 +552,11 @@ def builtin_unify(goal: Term, database: 'Database', subst: Dict, depth: int) -> 
 
 
 # ----------------------------------------------------------------------
-# Предикаты работы со списками
+# List predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('member', 2)
 def builtin_member(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """member(X, List) — линейный итеративный обход без substitute на каждом шаге."""
+    """member(X, List) — linear iterative traversal without substitute at each step."""
     if len(goal.arguments) != 2:
         return
     elem = goal.arguments[0]
@@ -564,12 +564,12 @@ def builtin_member(goal: Term, database: 'Database', subst: Dict, depth: int) ->
     open_counter = 0
 
     while True:
-        # разыменовываем цепочку переменных в текущей ячейке
+        # Dereference variable chain in the current cell
         while isinstance(current, Variable) and current in subst:
             current = subst[current]
 
         if isinstance(current, Variable):
-            # открытый хвост: одно решение — продлить списком [elem | _]
+            # Open tail: one solution — extend with list [elem | _]
             open_counter += 1
             tail = Variable(f'_member_open_{open_counter}')
             new_cons = Term('.', [elem, tail])
@@ -584,7 +584,7 @@ def builtin_member(goal: Term, database: 'Database', subst: Dict, depth: int) ->
             return
         if current.functor == '.' and len(current.arguments) == 2:
             head, tail = current.arguments
-            # unify сам разыменует elem и head через subst
+            # unify itself dereferences elem and head through subst
             new_subst = elem.unify(head, subst.copy(), depth=depth)
             if new_subst is not None:
                 yield new_subst
@@ -597,20 +597,21 @@ def builtin_member(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
     """append(A, B, C).
 
-    Реализация повторяет реляционную семантику стандартного append/3
-    (clause-1: append([], L, L); clause-2: append([H|T], L, [H|R]) :- append(T, L, R)),
-    но без substitute() на каждом шаге и без рекурсии.
+    The implementation follows the relational semantics of the standard
+    append/3 (clause-1: append([], L, L); clause-2: append([H|T], L, [H|R]) :-
+    append(T, L, R)), but without substitute() at each step and without
+    recursion.
 
-    Режимы:
-      * A ground           → единственное решение C = A ++ B.
-      * C ground, A свобод. → |C|+1 решений (перебор расщеплений C = A ++ B).
-      * C открыт, A свобод. → одно решение: A := [], B := C' (где C' — остаток C).
+    Modes:
+      * A ground           → single solution C = A ++ B.
+      * C ground, A free.  → |C|+1 solutions (enumerating splits C = A ++ B).
+      * C open, A free.    → single solution: A := [], B := C' (where C' is the remainder of C).
     """
     if len(goal.arguments) != 3:
         return
     a, b, c = goal.arguments
 
-    # --- Обход A: собрать heads и определить, замкнут ли список ---
+    # --- Traverse A: collect heads and determine whether the list is closed ---
     a_elems: List[Term] = []
     a_open = None
     current = a
@@ -630,9 +631,9 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
             continue
         return
 
-    # --- Режим 1: A полностью замкнут ---
+    # --- Mode 1: A is fully closed ---
     if a_open is None:
-        # C = A ++ B, единственное решение.
+        # C = A ++ B, single solution.
         chain = b
         for elem in reversed(a_elems):
             chain = Term('.', [elem, chain])
@@ -641,7 +642,7 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
             yield new_subst
         return
 
-    # --- Обход C: собрать heads и определить, замкнут ли список ---
+    # --- Traverse C: collect heads and determine whether the list is closed ---
     c_elems: List[Term] = []
     c_open = None
     current = c
@@ -661,17 +662,17 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
             continue
         return
 
-    # --- Режим 2: C полностью замкнут → перебираем расщепления ---
+    # --- Mode 2: C is fully closed → enumerate splits ---
     if c_open is None:
         if len(c_elems) < len(a_elems):
-            return  # C короче известного префикса A — расщеплений нет
-        # Известный префикс A должен совпасть с началом C
+            return  # C is shorter than the known prefix of A — no splits
+        # Known prefix of A must match the start of C
         prefix_subst = subst.copy()
         for ae, ce in zip(a_elems, c_elems[:len(a_elems)]):
             prefix_subst = ae.unify(ce, prefix_subst, depth=depth)
             if prefix_subst is None:
                 return
-        # k — сколько элементов C отдано под A (k >= len(a_elems))
+        # k — how many elements of C are given to A (k >= len(a_elems))
         for k in range(len(a_elems), len(c_elems) + 1):
             # a_open := C[len(a_elems):k]
             a_tail = Term('[]')
@@ -691,10 +692,10 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
                 yield cur
         return
 
-    # --- Режим 3: C открыт → A должен быть замкнут (a_open := []) ---
-    # B получается «достройкой» C до корректного списка.
+    # --- Mode 3: C is open → A must be closed (a_open := []) ---
+    # B is obtained by "completing" C to a valid list.
     if len(a_elems) <= len(c_elems):
-        # Известный префикс A укладывается в известный префикс C.
+        # Known prefix of A fits within the known prefix of C.
         cur = subst.copy()
         for ae, ce in zip(a_elems, c_elems[:len(a_elems)]):
             cur = ae.unify(ce, cur, depth=depth)
@@ -711,7 +712,7 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
         if cur is not None:
             yield cur
     else:
-        # C короче A — оставшаяся часть A должна уйти в c_open.
+        # C is shorter than A — the remainder of A must go into c_open.
         cur = subst.copy()
         for ce, ae in zip(c_elems, a_elems[:len(c_elems)]):
             cur = ce.unify(ae, cur, depth=depth)
@@ -731,7 +732,7 @@ def builtin_append(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 
 @prolog_predicate('length', 2)
 def builtin_length(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """length(List, N) — итеративный подсчёт, O(len(List))."""
+    """length(List, N) — iterative count, O(len(List))."""
     if len(goal.arguments) != 2:
         return
     lst = goal.arguments[0]
@@ -758,13 +759,13 @@ def builtin_length(goal: Term, database: 'Database', subst: Dict, depth: int) ->
         return  # improper list
 
     if open_tail is None:
-        # список полностью замкнут — одно решение
+        # list is fully closed — single solution
         new_subst = n.unify(Number(count), subst.copy(), depth=depth)
         if new_subst is not None:
             yield new_subst
         return
 
-    # список открыт: разрешаем n
+    # list is open: resolve n
     n_resolved = n
     while isinstance(n_resolved, Variable) and n_resolved in subst:
         n_resolved = subst[n_resolved]
@@ -773,7 +774,7 @@ def builtin_length(goal: Term, database: 'Database', subst: Dict, depth: int) ->
         target = int(n_resolved.value)
         if target < count:
             return
-        # дозамкнуть хвост target-count анонимными переменными
+        # extend the tail with (target-count) anonymous variables
         tail = Term('[]')
         for _ in range(target - count):
             tail = Term('.', [Variable('_'), tail])
@@ -782,8 +783,8 @@ def builtin_length(goal: Term, database: 'Database', subst: Dict, depth: int) ->
             yield new_subst
         return
 
-    # оба не связаны — выдаём одно минимальное решение (ISO-перечисление
-    # бесконечно; ограничиваемся базовым случаем)
+    # both unbound — yield the minimal solution (ISO enumeration is
+    # infinite; limited to the base case)
     new_subst = open_tail.unify(Term('[]'), subst.copy(), depth=depth)
     if new_subst is not None:
         new_subst = n.unify(Number(count), new_subst, depth=depth)
@@ -792,7 +793,7 @@ def builtin_length(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 
 
 # ----------------------------------------------------------------------
-# Ввод/вывод
+# Input/output
 # ----------------------------------------------------------------------
 @prolog_predicate('write', 1)
 def builtin_write(goal: Term, database: 'Database', subst: Dict, depth: int) -> List[Dict]:
@@ -818,7 +819,7 @@ def builtin_nl(goal: Term, database: 'Database', subst: Dict, depth: int) -> Lis
 
 
 # ----------------------------------------------------------------------
-# Управляющие предикаты
+# Control predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('repeat', 0)
 def builtin_repeat(goal: Term, database: 'Database', subst: Dict, depth: int):
@@ -852,7 +853,7 @@ def builtin_cut(goal: Term, database: 'Database', subst: Dict, depth: int):
 
 
 # ----------------------------------------------------------------------
-# Отрицание
+# Negation
 # ----------------------------------------------------------------------
 @prolog_predicate(r'\+', 1)
 def builtin_neg(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -870,7 +871,7 @@ def builtin_neg(goal: Term, database: 'Database', subst: Dict, depth: int) -> Ge
 
 
 # ----------------------------------------------------------------------
-# Предикаты базы данных
+# Database predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('asserta', 1)
 def builtin_asserta(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1010,15 +1011,15 @@ def builtin_current_predicate(goal: Term, database: 'Database', subst: Dict, dep
 
 
 # ----------------------------------------------------------------------
-# Мета-предикаты
+# Meta-predicates
 #
-# ОБЩИЙ ПРИНЦИП (см. findall):
-#   * RepeatException / CutException — управляющие, пробрасываем как есть.
-#   * PrologError                   — семантическая ошибка, пробрасываем.
-#   * Прочие Exception              — печатаем traceback и пробрасываем.
-# Раньше все они молча превращались в fail/return, из-за чего ошибка
-# внутри Goal (например, TypeError в Python-действии distance/5)
-# выглядела как «нет решений».
+# GENERAL PRINCIPLE (see findall):
+#   * RepeatException / CutException — control flow, propagate as-is.
+#   * PrologError                   — semantic error, propagate.
+#   * Other Exception               — print traceback and propagate.
+# Previously all of them were silently converted to fail/return, so that
+# an error inside Goal (e.g., TypeError in a Python action distance/5)
+# looked like "no solutions".
 # ----------------------------------------------------------------------
 def _call_with_args(g: Term, args: List[Term], database: 'Database',
                     subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1122,8 +1123,8 @@ def builtin_once(goal: Term, database: 'Database', subst: Dict, depth: int) -> G
 
 @prolog_predicate('ignore', 1)
 def builtin_ignore(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    # ignore/1 по ISO семантике глотает ЛЮБЫЕ ошибки и всегда успешен —
-    # оставляем как есть.
+    # ignore/1 according to ISO semantics swallows ANY error and always
+    # succeeds — keep it as is.
     if len(goal.arguments) != 1:
         return
     subgoal = goal.arguments[0].substitute(subst)
@@ -1176,17 +1177,17 @@ def builtin_forall(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 # ----------------------------------------------------------------------
 # findall / bagof / setof
 #
-# ИСПРАВЛЕНО (v5.3):
-#   Раньше эти предикаты содержали `except Exception: return`, из-за чего
-#   ЛЮБАЯ ошибка внутри Goal — в том числе TypeError/ValueError из
-#   Python-действия вроде distance/5 — превращалась в пустой список.
-#   Это делало невозможным отличить «нет решений» от «что-то упало
-#   внутри» и приводило к «тихому» поведению всей рефлексивной логики.
+# FIXED (v5.3):
+#   Previously these predicates contained `except Exception: return`, so
+#   ANY error inside Goal — including TypeError/ValueError from a
+#   Python action like distance/5 — turned into an empty list.
+#   This made it impossible to distinguish "no solutions" from "something
+#   failed inside" and led to "silent" behavior of the whole reflective logic.
 #
-#   Теперь:
-#     * PrologError пробрасывается (ISO-семантика);
-#     * прочие Exception печатаются с traceback и пробрасываются;
-#     * RepeatException/CutException пробрасываются как управляющие.
+#   Now:
+#     * PrologError is propagated (ISO semantics);
+#     * other Exceptions are printed with traceback and propagated;
+#     * RepeatException/CutException are propagated as control flow.
 # ----------------------------------------------------------------------
 @prolog_predicate('findall', 3)
 def builtin_findall(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1306,7 +1307,7 @@ def builtin_setof(goal: Term, database: 'Database', subst: Dict, depth: int) -> 
 
 
 # ----------------------------------------------------------------------
-# Строковые и атомные предикаты
+# String and atom predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('string_concat', 3)
 def builtin_string_concat(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1525,7 +1526,7 @@ def builtin_memberchk(goal: Term, database: 'Database', subst: Dict, depth: int)
 
 
 # ----------------------------------------------------------------------
-# Предикаты сравнения термов
+# Term comparison predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('==', 2)
 def builtin_eq_eq(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1625,7 +1626,7 @@ def builtin_compare(goal: Term, database: 'Database', subst: Dict, depth: int) -
 
 
 # ----------------------------------------------------------------------
-# Предикаты конструкторы и деструкторы термов
+# Term constructors and destructors
 # ----------------------------------------------------------------------
 @prolog_predicate('functor', 3)
 def builtin_functor(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1841,7 +1842,7 @@ def builtin_numbervars(goal: Term, database: 'Database', subst: Dict, depth: int
 
 
 # ----------------------------------------------------------------------
-# Предикаты проверки типов
+# Type-check predicates
 # ----------------------------------------------------------------------
 @prolog_predicate('var', 1)
 def builtin_var(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
@@ -1863,7 +1864,7 @@ def builtin_nonvar(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 
 @prolog_predicate('atom', 1)
 def builtin_atom(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Истинно, если аргумент является атомом (не число, не переменная, не составной терм)."""
+    """True if the argument is an atom (not a number, variable, or compound term)."""
     if len(goal.arguments) != 1:
         return
     val = goal.arguments[0].substitute(subst)
@@ -1900,7 +1901,7 @@ def builtin_number(goal: Term, database: 'Database', subst: Dict, depth: int) ->
 
 @prolog_predicate('atomic', 1)
 def builtin_atomic(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Истинно, если терм является числом, атомом или строкой (без переменных)."""
+    """True if the term is a number, atom, or string (no variables)."""
     if len(goal.arguments) != 1:
         return
     val = goal.arguments[0].substitute(subst)
@@ -1938,11 +1939,11 @@ def builtin_callable(goal: Term, database: 'Database', subst: Dict, depth: int) 
 
 
 # ======================================================================
-# ПРЕДИКАТЫ УПРАВЛЕНИЯ СЕМАНТИЧЕСКОЙ УНИФИКАЦИЕЙ
+# PREDICATES FOR MANAGING SEMANTIC UNIFICATION
 # ======================================================================
 @prolog_predicate('semantic_on', 0)
 def builtin_semantic_on_0(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Включить семантическую унификацию с параметрами по умолчанию."""
+    """Enable semantic unification with default parameters."""
     if goal.arguments:
         return
     try:
@@ -1955,7 +1956,7 @@ def builtin_semantic_on_0(goal: Term, database: 'Database', subst: Dict, depth: 
 
 @prolog_predicate('semantic_on', 1)
 def builtin_semantic_on_1(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Включить семантическую унификацию с заданным порогом: semantic_on(Threshold)."""
+    """Enable semantic unification with the given threshold: semantic_on(Threshold)."""
     if len(goal.arguments) != 1:
         return
     try:
@@ -1974,7 +1975,7 @@ def builtin_semantic_on_1(goal: Term, database: 'Database', subst: Dict, depth: 
 
 @prolog_predicate('semantic_off', 0)
 def builtin_semantic_off(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Отключить семантическую унификацию (перейти к строгой)."""
+    """Disable semantic unification (revert to strict)."""
     if goal.arguments:
         return
     try:
@@ -1987,7 +1988,7 @@ def builtin_semantic_off(goal: Term, database: 'Database', subst: Dict, depth: i
 
 @prolog_predicate('semantic_threshold', 1)
 def builtin_semantic_threshold(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Изменить порог семантической унификации у уже включённого унификатора."""
+    """Change the semantic unification threshold of the already-enabled unifier."""
     if len(goal.arguments) != 1:
         return
     try:
@@ -2008,7 +2009,7 @@ def builtin_semantic_threshold(goal: Term, database: 'Database', subst: Dict, de
 
 @prolog_predicate('semantic_status', 1)
 def builtin_semantic_status(goal: Term, database: 'Database', subst: Dict, depth: int) -> Generator[Dict, None, None]:
-    """Получить статус семантической унификации."""
+    """Get the status of semantic unification."""
     if len(goal.arguments) != 1:
         return
     try:
@@ -2027,24 +2028,24 @@ def builtin_semantic_status(goal: Term, database: 'Database', subst: Dict, depth
 
 
 # ======================================================================
-# ДИАГНОСТИКА NUMBA-УСКОРЕНИЯ АРИФМЕТИКИ
+# NUMBA ARITHMETIC ACCELERATION DIAGNOSTICS
 # ======================================================================
 
 def arith_numba_status() -> Dict[str, Any]:
-    """Статус Numba-ускорения арифметики (для диагностики и тестов)."""
+    """Status of Numba acceleration of arithmetic (for diagnostics and tests)."""
     return _numba_status()
 
 
 def warmup_arith_numba() -> bool:
-    """Прогреть JIT-ядро арифметики."""
+    """Warm up the arithmetic JIT kernel."""
     return _warmup_numba()
 
 
 # ======================================================================
-# АВТОМАТИЧЕСКОЕ ПОСТРОЕНИЕ РЕЕСТРА ПРЕДИКАТОВ
+# AUTOMATIC CONSTRUCTION OF THE PREDICATE REGISTRY
 # ======================================================================
 def _collect_builtins_from_module():
-    """Собирает все функции с атрибутами _is_prolog_predicate в словарь."""
+    """Collects all functions with _is_prolog_predicate attributes into a dict."""
     import sys
     module = sys.modules[__name__]
     predicates = {}
@@ -2058,7 +2059,7 @@ def _collect_builtins_from_module():
     return predicates
 
 
-# Словарь для обратной совместимости (используется другими модулями)
+# Dict for backward compatibility (used by other modules)
 STANDARD_PREDICATES = {}
 for (name, arity), func in _collect_builtins_from_module().items():
     if name not in STANDARD_PREDICATES:

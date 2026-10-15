@@ -1,11 +1,12 @@
 """ PyAgentProlog
 
-Модуль для трассировки выполнения и построения дерева доказательств
-(исправлена логика успеха: шаг успешен, если явно завершён с success=True).
+Module for execution tracing and building a proof tree
+(fixed success logic: a step is successful only if it was explicitly
+finished with success=True).
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
@@ -13,7 +14,7 @@ import uuid
 
 @dataclass
 class ProofStep:
-    """Один шаг доказательства"""
+    """A single proof step"""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     goal: str = ""
     rule_used: Optional[str] = None
@@ -29,13 +30,13 @@ class ProofStep:
         indent = "  " * self.depth
         result = f"{indent}{self.goal}"
         if self.rule_used:
-            result += f" [по правилу: {self.rule_used}]"
+            result += f" [by rule: {self.rule_used}]"
         if self.unification:
             unif_str = ", ".join(f"{var}={val}" for var, val in self.unification)
-            result += f" [унификация: {unif_str}]"
+            result += f" [unification: {unif_str}]"
         if self.builtin:
-            result += " [встроенный предикат]"
-        result += f" - {'УСПЕХ' if self.success else 'НЕУДАЧА'}"
+            result += " [built-in predicate]"
+        result += f" - {'SUCCESS' if self.success else 'FAILURE'}"
         return result
 
     def to_dict(self) -> Dict[str, Any]:
@@ -60,7 +61,7 @@ class ProofStep:
 
 
 class ProofTracer:
-    """Трассировщик для записи процесса доказательства"""
+    """Tracer for recording the proof process"""
     
     def __init__(self):
         self.root_steps: List[ProofStep] = []
@@ -79,7 +80,7 @@ class ProofTracer:
         return step
     
     def end_goal(self, success: bool = True):
-        """Завершить текущую цель и установить флаг успеха"""
+        """Finish the current goal and set the success flag"""
         if self.step_stack:
             step = self.step_stack.pop()
             step.success = success
@@ -106,7 +107,7 @@ class ProofTracer:
             self.current_step.subst_after = {str(k): str(v) for k, v in after.items()}
     
     def get_proof_tree(self) -> str:
-        result = "ДЕРЕВО ДОКАЗАТЕЛЬСТВА:\n"
+        result = "PROOF TREE:\n"
         result += "=" * 50 + "\n"
         for step in self.root_steps:
             result += step.to_tree_string()

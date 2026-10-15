@@ -1,26 +1,26 @@
 """
 prolog_semantic_demo.py
 
-Большая демонстрация преимуществ семантической унификации.
+Large demonstration of the advantages of semantic unification.
 
-Домен: база знаний о странах — столицы, валюты, языки.
+Domain: a knowledge base about countries — capitals, currencies, languages.
 
-Два backend'а:
-  backend='st'     — через sentence-transformers (рекомендуется).
-  backend='ollama' — через Ollama.
+Two backends:
+  backend='st'     — via sentence-transformers (recommended).
+  backend='ollama' — via Ollama.
 
-Слои сопоставления:
-  exact  — строки совпали после нормализации;
-  typo   — lev_ratio <= lev_typo_max (опечатки, падежи) — без модели;
+Matching layers:
+  exact  — strings matched after normalization;
+  typo   — lev_ratio <= lev_typo_max (typos, cases) — without the model;
   hard   — cos >= threshold;
-  soft   — soft_cos_min <= cos < threshold и lev_ratio <= lev_max.
+  soft   — soft_cos_min <= cos < threshold and lev_ratio <= lev_max.
 
-Параметры задаются в CONFIG (прямо в коде). Env-переменные переопределяют.
+Parameters are set in CONFIG (directly in the code). Env variables override.
 
-Подавление вывода ST/HF:
-  По умолчанию сообщения "[ST] resolved model path" и прогресс-бары
-  "Loading weights" отключены. Включить их: PROLOG_ST_VERBOSE=1
-  или CONFIG["st_verbose"] = True.
+Suppressing ST/HF output:
+  By default, "[ST] resolved model path" messages and progress bars
+  "Loading weights" are disabled. Enable them with: PROLOG_ST_VERBOSE=1
+  or CONFIG["st_verbose"] = True.
 """
 import os
 import sys
@@ -33,7 +33,7 @@ import prolog.embedding_unify as eu
 
 
 # =====================================================================
-# КОНФИГУРАЦИЯ — правь здесь
+# CONFIGURATION — edit here
 # =====================================================================
 CONFIG = {
     "backend": "st",
@@ -43,14 +43,14 @@ CONFIG = {
     "device": None,
     "local_files_only": True,
 
-    # Показывать сообщения sentence-transformers и прогресс-бары.
-    # False (по умолчанию) — тихо; True — печатать путь к модели и полосы.
+    # Show sentence-transformers messages and progress bars.
+    # False (default) — silent; True — print the model path and bars.
     "st_verbose": False,
 
-    "threshold": 0.75,          # hard-порог cos
-    "soft_cos_min": 0.55,       # нижняя граница soft-коридора
-    "lev_max": 0.35,            # максимальное lev_ratio в soft-коридоре
-    "lev_typo_max": 0.20,       # порог «опечаток» (Layer 2a)
+    "threshold": 0.75,          # hard cos threshold
+    "soft_cos_min": 0.55,       # lower bound of the soft corridor
+    "lev_max": 0.35,            # maximum lev_ratio in the soft corridor
+    "lev_typo_max": 0.20,       # "typo" threshold (Layer 2a)
 
     "text_prefix": None,
 
@@ -103,82 +103,82 @@ CONFIG = _apply_env(CONFIG)
 
 
 # =====================================================================
-# Программа Prolog
+# Prolog program
 # =====================================================================
 PROGRAM = """
-страна(россия, европа, 144).
-страна(германия, европа, 83).
-страна(франция, европа, 67).
-страна(китай, азия, 1400).
-страна(япония, азия, 125).
-страна(индия, азия, 1400).
-страна(бразилия, америка, 215).
+country(russia, europe, 144).
+country(germany, europe, 83).
+country(france, europe, 67).
+country(china, asia, 1400).
+country(japan, asia, 125).
+country(india, asia, 1400).
+country(brazil, america, 215).
 
-столица(россия, москва).
-столица(германия, берлин).
-столица(франция, париж).
-столица(китай, пекин).
-столица(япония, токио).
-столица(индия, дели).
-столица(бразилия, бразилиа).
+capital(russia, moscow).
+capital(germany, berlin).
+capital(france, paris).
+capital(china, beijing).
+capital(japan, tokyo).
+capital(india, delhi).
+capital(brazil, brasilia).
 
-валюта(россия, рубль).
-валюта(германия, евро).
-валюта(франция, евро).
-валюта(китай, юань).
-валюта(япония, иена).
-валюта(индия, рупия).
-валюта(бразилия, реал).
+currency(russia, ruble).
+currency(germany, euro).
+currency(france, euro).
+currency(china, yuan).
+currency(japan, yen).
+currency(india, rupee).
+currency(brazil, real).
 
-язык(россия, русский).
-язык(германия, немецкий).
-язык(франция, французский).
-язык(китай, китайский).
-язык(япония, японский).
-язык(индия, хинди).
-язык(бразилия, португальский).
+language(russia, russian).
+language(germany, german).
+language(france, french).
+language(china, chinese).
+language(japan, japanese).
+language(india, hindi).
+language(brazil, portuguese).
 
-европейская_страна(X) :- страна(X, европа, _).
-азиатская_страна(X)   :- страна(X, азия, _).
-американская_страна(X):- страна(X, америка, _).
+european_country(X) :- country(X, europe, _).
+asian_country(X)    :- country(X, asia, _).
+american_country(X) :- country(X, america, _).
 
-большая_страна(X) :- страна(X, _, N), N > 100.
-малая_страна(X)   :- страна(X, _, N), N =< 100.
+large_country(X) :- country(X, _, N), N > 100.
+small_country(X) :- country(X, _, N), N =< 100.
 
-использует_евро(X) :- валюта(X, евро).
+uses_euro(X) :- currency(X, euro).
 
-страна_по_столице(Страна, Столица) :- столица(Страна, Столица).
+country_by_capital(Country, Capital) :- capital(Country, Capital).
 
-большая_азиатская(X) :-
-    страна(X, азия, N),
+large_asian(X) :-
+    country(X, asia, N),
     N > 100.
 
-европейская_евро(X) :-
-    европейская_страна(X),
-    использует_евро(X).
+european_euro(X) :-
+    european_country(X),
+    uses_euro(X).
 """
 
 
 QUERIES = [
-    (1, "CONTROL",   "Точное совпадение: 'москва' == 'москва'",       "столица(россия, москва)."),
-    (2, "CASE",      "Регистр: 'Москва' vs 'москва'",                  "столица(россия, 'Москва')."),
-    (3, "MORPH",     "Падеж: 'Москве' vs 'москва'",                    "столица(россия, 'Москве')."),
-    (4, "CROSSLING", "Кросс-язычность: 'Moscow' vs 'москва'",          "столица(россия, 'Moscow')."),
-    (5, "TYPO",      "Опечатка: 'Масква' vs 'москва'",                 "столица(россия, 'Масква')."),
-    (6, "SYNONYM",   "Аббревиатура: 'РФ' vs 'россия'",                 "столица('РФ', X)."),
-    (7, "CASE",      "Регистр + падеж: 'Париже' vs 'париж'",           "столица(франция, 'Париже')."),
-    (8, "CASE",      "Найти страну по столице 'Токио'",                "страна_по_столице(X, 'Токио')."),
-    (9, "CASE",      "Большая страна: 'Китай' vs 'китай'",             "большая_страна('Китай')."),
-    (10, "CASE",     "Азиатская страна: 'Япония' vs 'япония'",         "азиатская_страна('Япония')."),
-    (11, "CASE",     "Использует евро: 'Германия' vs 'германия'",      "использует_евро('Германия')."),
-    (12, "CROSSLING","Кросс-язычность: 'Beijing' vs 'пекин'",          "столица(китай, 'Beijing')."),
-    (13, "NEGATIVE", "Ложное: 'Лондон' не столица россии",             "столица(россия, 'Лондон')."),
-    (14, "NEGATIVE", "Ложное: 'луна' не страна",                       "страна('луна', _, _)."),
+    (1, "CONTROL",   "Exact match: 'moscow' == 'moscow'",             "capital(russia, moscow)."),
+    (2, "CASE",      "Case: 'Moscow' vs 'moscow'",                    "capital(russia, 'Moscow')."),
+    (3, "MORPH",     "Morphology: 'Moscow City' vs 'moscow'",         "capital(russia, 'Moscow City')."),
+    (4, "CROSSLING", "Cross-language: 'Москва' vs 'moscow'",          "capital(russia, 'Москва')."),
+    (5, "TYPO",      "Typo: 'Moskow' vs 'moscow'",                    "capital(russia, 'Moskow')."),
+    (6, "SYNONYM",   "Abbreviation: 'RF' vs 'russia'",                "capital('RF', X)."),
+    (7, "CASE",      "Case + possessive: 'Paris\\'s' vs 'paris'",     "capital(france, 'Paris\\'s')."),
+    (8, "CASE",      "Find a country by capital 'Tokyo'",             "country_by_capital(X, 'Tokyo')."),
+    (9, "CASE",      "Large country: 'China' vs 'china'",             "large_country('China')."),
+    (10, "CASE",     "Asian country: 'Japan' vs 'japan'",             "asian_country('Japan')."),
+    (11, "CASE",     "Uses euro: 'Germany' vs 'germany'",             "uses_euro('Germany')."),
+    (12, "CROSSLING","Old spelling: 'Peking' vs 'beijing'",           "capital(china, 'Peking')."),
+    (13, "NEGATIVE", "False: 'London' is not the capital of russia",  "capital(russia, 'London')."),
+    (14, "NEGATIVE", "False: 'moon' is not a country",                "country('moon', _, _)."),
 ]
 
 
 # =====================================================================
-# Доступ к CONFIG
+# Access to CONFIG
 # =====================================================================
 def _resolve_prefix():
     tp = CONFIG["text_prefix"]
@@ -217,16 +217,16 @@ def check_backend():
     if _backend_ok is not None:
         return _backend_ok
 
-    print(f"[ПРОВЕРКА] backend='{CONFIG['backend']}'")
+    print(f"[CHECK] backend='{CONFIG['backend']}'")
     if CONFIG["backend"] == "ollama":
-        print(f"[ПРОВЕРКА] Ollama: model='{CONFIG['model']}', "
+        print(f"[CHECK] Ollama: model='{CONFIG['model']}', "
               f"url='{CONFIG['ollama_url']}'")
     else:
-        print(f"[ПРОВЕРКА] sentence-transformers: model='{CONFIG['model']}'")
+        print(f"[CHECK] sentence-transformers: model='{CONFIG['model']}'")
         if CONFIG["local_dir"]:
-            print(f"[ПРОВЕРКА]   local_dir='{CONFIG['local_dir']}'")
+            print(f"[CHECK]   local_dir='{CONFIG['local_dir']}'")
         if CONFIG["cache_folder"]:
-            print(f"[ПРОВЕРКА]   cache_folder='{CONFIG['cache_folder']}'")
+            print(f"[CHECK]   cache_folder='{CONFIG['cache_folder']}'")
 
     try:
         if CONFIG["backend"] == "ollama":
@@ -246,15 +246,15 @@ def check_backend():
             )
             v = fn("ping")
         else:
-            print(f"[ПРОВЕРКА] Неизвестный backend='{CONFIG['backend']}'")
+            print(f"[CHECK] Unknown backend='{CONFIG['backend']}'")
             _backend_ok = False
             return False
 
         _backend_ok = (v is not None and len(v) > 0)
         if _backend_ok:
-            print(f"[ПРОВЕРКА] OK, размерность вектора: {len(v)}")
+            print(f"[CHECK] OK, vector dimension: {len(v)}")
     except Exception as e:
-        print(f"[ПРОВЕРКА] Недоступно: {type(e).__name__}: {e}")
+        print(f"[CHECK] Unavailable: {type(e).__name__}: {e}")
         _backend_ok = False
     return _backend_ok
 
@@ -263,7 +263,7 @@ def run_query(solver, query_text):
     try:
         result = solver.find_solutions(query_text)
     except Exception as e:
-        print(f"    [ошибка] {type(e).__name__}: {e}")
+        print(f"    [error] {type(e).__name__}: {e}")
         return False, 0
 
     if result is True:
@@ -286,7 +286,7 @@ def run_all(solver, verbose=True):
         results.append((ok, cnt))
         if verbose:
             mark = "✓" if ok else "✗"
-            print(f"       {mark} решений: {cnt}  ({dt*1000:.0f} ms)")
+            print(f"       {mark} solutions: {cnt}  ({dt*1000:.0f} ms)")
     return results
 
 
@@ -294,53 +294,53 @@ def main():
     actual_prefix = _resolve_prefix()
 
     print("=" * 78)
-    print("ДЕМОНСТРАЦИЯ: Prolog со строгой vs семантической унификацией")
+    print("DEMO: Prolog with strict vs semantic unification")
     print("=" * 78)
     print(f"Backend:   {CONFIG['backend']}")
-    print(f"Модель:    {CONFIG['model']}")
+    print(f"Model:     {CONFIG['model']}")
     if CONFIG["backend"] == "ollama":
         print(f"Ollama:    {CONFIG['ollama_url']}")
     else:
-        print(f"Local dir: {CONFIG['local_dir'] or '(не задан)'}")
+        print(f"Local dir: {CONFIG['local_dir'] or '(not set)'}")
         print(f"Cache:     {CONFIG['cache_folder'] or CONFIG['local_dir'] or '(HF default)'}")
         print(f"Device:    {CONFIG['device'] or '(auto)'}")
         print(f"Offline:   {CONFIG['local_files_only']}")
         print(f"ST verbose:{CONFIG['st_verbose']}")
-    print(f"Порог:     {CONFIG['threshold']}")
-    print(f"Коридор:   lev_typo_max={CONFIG['lev_typo_max']}, "
+    print(f"Threshold: {CONFIG['threshold']}")
+    print(f"Corridor:  lev_typo_max={CONFIG['lev_typo_max']}, "
           f"soft_cos_min={CONFIG['soft_cos_min']}, lev_max={CONFIG['lev_max']}")
-    print(f"Префикс:   {actual_prefix!r}"
-          + (" (авто)" if CONFIG['text_prefix'] is None else " (задан явно)"))
-    print(f"Запросов:  {len(QUERIES)}")
+    print(f"Prefix:    {actual_prefix!r}"
+          + (" (auto)" if CONFIG['text_prefix'] is None else " (set explicitly)"))
+    print(f"Queries:   {len(QUERIES)}")
     print("=" * 78)
 
     if not check_backend():
-        print("\nBackend недоступен. Проверьте:")
+        print("\nBackend is unavailable. Check:")
         if CONFIG["backend"] == "ollama":
-            print(f"  - запущен ли `ollama serve`;")
-            print(f"  - загружена ли модель: `ollama pull {CONFIG['model']}`")
+            print(f"  - is `ollama serve` running;")
+            print(f"  - is the model loaded: `ollama pull {CONFIG['model']}`")
         else:
-            print(f"  - установлен ли sentence-transformers: "
+            print(f"  - is sentence-transformers installed: "
                   f"`pip install sentence-transformers`;")
             if CONFIG["local_dir"]:
-                print(f"  - существует ли '{CONFIG['local_dir']}' и папка модели в ней;")
-            print(f"  - или есть ли доступ к HF Hub для {CONFIG['model']}.")
+                print(f"  - does '{CONFIG['local_dir']}' exist and contain the model folder;")
+            print(f"  - or is HF Hub reachable for {CONFIG['model']}.")
         return 1
 
-    print("\nЗагрузка базы знаний…")
+    print("\nLoading the knowledge base…")
     solver = Solver(PROGRAM)
-    print(f"  Фактов и правил: {len(solver.database.rules)}")
+    print(f"  Facts and rules: {len(solver.database.rules)}")
 
-    # ---------- Этап 1: строгий ----------
+    # ---------- Stage 1: strict ----------
     print("\n" + "=" * 78)
-    print("ЭТАП 1 — СТРОГИЙ РЕЖИМ (semantic_off)")
+    print("STAGE 1 — STRICT MODE (semantic_off)")
     print("=" * 78)
     eu.semantic_off()
     strict_results = run_all(solver, verbose=True)
 
-    # ---------- Этап 2: семантический ----------
+    # ---------- Stage 2: semantic ----------
     print("\n" + "=" * 78)
-    print("ЭТАП 2 — СЕМАНТИЧЕСКИЙ РЕЖИМ (semantic_on)")
+    print("STAGE 2 — SEMANTIC MODE (semantic_on)")
     print("=" * 78)
     eu.semantic_off()
 
@@ -348,12 +348,12 @@ def main():
     eu.semantic_on(**on_kwargs)
     semantic_results = run_all(solver, verbose=True)
 
-    # ---------- Сводная таблица ----------
+    # ---------- Summary table ----------
     print("\n" + "=" * 78)
-    print("СВОДНАЯ ТАБЛИЦА")
+    print("SUMMARY TABLE")
     print("=" * 78)
     fmt = "{:<3} {:<10} {:<48} {:<9} {:<12} {}"
-    print(fmt.format("#", "Категория", "Запрос", "Строгий", "Семантика", "Δ"))
+    print(fmt.format("#", "Category", "Query", "Strict", "Semantics", "Δ"))
     print("-" * 100)
 
     wins = 0
@@ -365,10 +365,10 @@ def main():
         m_str = f"OK ({m_cnt})" if m_ok else "FAIL"
 
         if s_ok and not m_ok:
-            delta = "!! регрессия"
+            delta = "!! regression"
             losses += 1
         elif not s_ok and m_ok:
-            delta = "+ семантика победила"
+            delta = "+ semantics won"
             wins += 1
         else:
             delta = "="
@@ -379,62 +379,61 @@ def main():
     print("-" * 100)
     strict_ok_total = sum(1 for ok, _ in strict_results if ok)
     semantic_ok_total = sum(1 for ok, _ in semantic_results if ok)
-    print(f"Строгий режим:         {strict_ok_total} / {len(QUERIES)}")
-    print(f"Семантический режим:   {semantic_ok_total} / {len(QUERIES)}")
-    print(f"Побед семантики:       {wins}")
-    print(f"Регрессий:             {losses}")
+    print(f"Strict mode:           {strict_ok_total} / {len(QUERIES)}")
+    print(f"Semantic mode:         {semantic_ok_total} / {len(QUERIES)}")
+    print(f"Semantic wins:         {wins}")
+    print(f"Regressions:           {losses}")
 
-    # ---------- Статистика ----------
+    # ---------- Statistics ----------
     u = eu.semantic_get_unifier()
     if u is not None:
         print("\n" + "=" * 78)
-        print("СТАТИСТИКА СЕМАНТИЧЕСКОГО УНИФИКАТОРА")
+        print("SEMANTIC UNIFIER STATISTICS")
         print("=" * 78)
         st = u.stats
         print(f"  Backend:                       {u.backend}")
-        print(f"  Всего вызовов унификации:      {st['calls']}")
-        print(f"  Успешно строго:                {st['strict_success']}")
-        print(f"  Успешно exact (нормализация):  {st.get('exact_success', 0)}")
-        print(f"  Успешно typo (опечатки/падежи):{st.get('typo_success', 0)}")
-        print(f"  Успешно hard (cos >= порог):   {st['embedding_success']}")
-        print(f"  Успешно soft (Levenshtein):    {st.get('soft_success', 0)}")
-        print(f"  Провалов:                      {st['failures']}")
+        print(f"  Total unification calls:       {st['calls']}")
+        print(f"  Strict successes:              {st['strict_success']}")
+        print(f"  Exact successes (normalization):{st.get('exact_success', 0)}")
+        print(f"  Typo successes (typos/cases):  {st.get('typo_success', 0)}")
+        print(f"  Hard successes (cos >= thresh):{st['embedding_success']}")
+        print(f"  Soft successes (Levenshtein):  {st.get('soft_success', 0)}")
+        print(f"  Failures:                      {st['failures']}")
         cs = u.cache.stats()
-        print(f"  Кэш эмбеддингов:               {cs['size']} записей")
-        print(f"    попаданий:                   {cs['hits']}")
-        print(f"    промахов:                    {cs['misses']}")
+        print(f"  Embedding cache:               {cs['size']} entries")
+        print(f"    hits:                        {cs['hits']}")
+        print(f"    misses:                      {cs['misses']}")
         print(f"    hit rate:                    {cs['hit_rate']:.1%}")
-        print(f"  Префикс текста:                {u.text_prefix!r}")
+        print(f"  Text prefix:                   {u.text_prefix!r}")
         print(f"  lev_typo_max:                  {u.lev_typo_max}")
 
-    # ---------- Таблица косинусов ----------
+    # ---------- Cosine table ----------
     print("\n" + "=" * 78)
-    print("КОСИНУСНАЯ БЛИЗОСТЬ КЛЮЧЕВЫХ ПАР (что видит модель)")
+    print("COSINE SIMILARITY OF KEY PAIRS (what the model sees)")
     print("=" * 78)
     if eu.semantic_get_unifier() is None:
         eu.semantic_on(**on_kwargs)
     u = eu.semantic_get_unifier()
 
     pairs = [
-        ("Москва", "москва", "регистр"),
-        ("Москве", "москва", "падеж"),
-        ("Москвы", "москва", "падеж"),
-        ("Moscow", "москва", "кросс-язычность"),
-        ("Beijing", "пекин", "кросс-язычность"),
-        ("Масква", "москва", "опечатка"),
-        ("РФ", "россия", "аббревиатура"),
-        ("Париже", "париж", "падеж"),
-        ("Токио", "токио", "регистр"),
-        ("Китай", "китай", "регистр"),
-        ("Япония", "япония", "регистр"),
-        ("Германия", "германия", "регистр"),
-        ("евро", "евро", "точное"),
-        ("лондон", "москва", "ЛОЖНОЕ"),
-        ("луна", "россия", "ЛОЖНОЕ"),
-        ("кошка", "собака", "ЛОЖНОЕ"),
+        ("Moscow", "moscow", "case"),
+        ("Moscow City", "moscow", "morphology"),
+        ("Paris's", "paris", "possessive"),
+        ("Москва", "moscow", "cross-language"),
+        ("Peking", "beijing", "old spelling"),
+        ("Moskow", "moscow", "typo"),
+        ("RF", "russia", "abbreviation"),
+        ("Tokyo", "tokyo", "case"),
+        ("China", "china", "case"),
+        ("Japan", "japan", "case"),
+        ("Germany", "germany", "case"),
+        ("euro", "euro", "exact"),
+        ("london", "moscow", "FALSE"),
+        ("moon", "russia", "FALSE"),
+        ("cat", "dog", "FALSE"),
     ]
 
-    header = f"{'Слово 1':<14} {'Слово 2':<14} {'cos':>8}   {'lev':>6}   {'слой':<7} тип"
+    header = f"{'Word 1':<14} {'Word 2':<14} {'cos':>8}   {'lev':>6}   {'layer':<7} type"
     print(header)
     print("-" * 78)
     for w1, w2, ptype in pairs:
@@ -458,16 +457,16 @@ def main():
                 layer = "—"
         print(f"{w1:<14} {w2:<14} {cos:>8.4f}   {lev:>6.3f}   {layer:<7} {ptype}")
 
-    # ---------- Итог ----------
+    # ---------- Conclusion ----------
     print("\n" + "=" * 78)
-    print("ИТОГ")
+    print("CONCLUSION")
     print("=" * 78)
     if wins > 0 and losses == 0:
-        print(f"✓ Семантический режим выиграл в {wins} запросах и не проиграл ни одного.")
+        print(f"✓ Semantic mode won in {wins} queries and lost in none.")
     elif losses > 0:
-        print(f"⚠ Обнаружены регрессии: {losses}. Возможно, порог слишком низкий.")
+        print(f"⚠ Regressions detected: {losses}. The threshold may be too low.")
     else:
-        print("Все запросы дали одинаковый результат — увеличьте сложность сценария.")
+        print("All queries produced the same result — increase the complexity of the scenario.")
 
     eu.semantic_off()
     return 0

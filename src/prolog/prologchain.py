@@ -1,10 +1,10 @@
 """ PyAgentProlog
 
-Интеграция с langchain
+LangChain integration.
 
-(c) 2026 Andrey Vorfolomeev (Ворфоломеев Андрей Викторович)
+(c) 2026 Andrey Vorfolomeev
 
-версия 5.9.1
+version 1.0.1
 """
 
 from typing import Dict, Any, List, Union, Optional, ClassVar
@@ -16,18 +16,18 @@ from prolog.solver import Solver, ParseSolution
 
 
 class PrologQueryTemplate(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
-    """Шаблон для Prolog-запросов, совместимый с LangChain Expression Language"""
+    """Template for Prolog queries, compatible with LangChain Expression Language"""
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
-    template: str = Field(description="Шаблон Prolog-запроса")
+    template: str = Field(description="Prolog query template")
     
-    # Приватные атрибуты
+    # Private attributes
     _input_variables: List[str] = PrivateAttr(default_factory=list)
     
     def __init__(self, template: str, **kwargs):
-        """Инициализация шаблона Prolog-запроса"""
-        # Извлекаем переменные из шаблона
+        """Initialize the Prolog query template"""
+        # Extract variables from the template
         input_variables = self._extract_variables(template)
         
         super().__init__(template=template, **kwargs)
@@ -35,24 +35,24 @@ class PrologQueryTemplate(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
     
     @classmethod
     def from_template(cls, template: str, **kwargs) -> "PrologQueryTemplate":
-        """Создание шаблона из строки (аналогично ChatPromptTemplate.from_template)"""
+        """Create a template from a string (similar to ChatPromptTemplate.from_template)"""
         return cls(template=template, **kwargs)
     
     @staticmethod
     def _extract_variables(template: str) -> List[str]:
-        """Извлечение переменных из шаблона"""
+        """Extract variables from the template"""
         variables = re.findall(r'\{(\w+)\}', template)
         return list(set(variables))
     
     @property
     def input_variables(self) -> List[str]:
-        """Получение списка переменных"""
+        """Get the list of variables"""
         return self._input_variables
     
     def format(self, **kwargs: Any) -> str:
-        """Форматирование шаблона с переменными"""
+        """Format the template with variables"""
         try:
-            # Проверяем, что все переменные предоставлены
+            # Check that all variables are provided
             for var in self.input_variables:
                 if var not in kwargs:
                     raise ValueError(f"Missing variable '{var}' in template '{self.template}'")
@@ -62,42 +62,42 @@ class PrologQueryTemplate(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
             raise ValueError(f"Missing variable {e} in template '{self.template}'")
     
     def format_prompt(self, **kwargs: Any) -> Dict[str, Any]:
-        """Форматирование для создания промпта"""
+        """Format for creating a prompt"""
         return {"query": self.format(**kwargs)}
     
     def invoke(self, 
                input: Dict[str, Any],
                config: Optional[Dict[str, Any]] = None,
                **kwargs: Any) -> Dict[str, Any]:
-        """Выполнение шаблона - форматирование запроса"""
+        """Execute the template — format the query"""
         try:
-            # Если передали query напрямую, используем его
+            # If query is passed directly, use it
             if "query" in input:
                 return {"query": input["query"]}
             
-            # Иначе форматируем шаблон
+            # Otherwise, format the template
             query = self.format(**input)
             return {"query": query}
         except Exception as e:
-            print(f"Ошибка форматирования Prolog-запроса: {e}")
+            print(f"Error formatting the Prolog query: {e}")
             return {"error": str(e)}
     
     def __or__(self, other):
-        """Поддержка оператора | для цепочек"""
-        # Используем стандартную цепочку LangChain
+        """Support the | operator for chains"""
+        # Use the standard LangChain chain
         return RunnableSequence(first=self, last=other)
 
 
 class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
-    """Runnable-цепь для выполнения Prolog-запросов"""
+    """Runnable chain for executing Prolog queries"""
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
-    # Pydantic поля
-    program: str = Field(description="Prolog программа")
-    include_explanation: bool = Field(default=False, description="Включать объяснения")
+    # Pydantic fields
+    program: str = Field(description="Prolog program")
+    include_explanation: bool = Field(default=False, description="Include explanations")
     
-    # Приватные атрибуты (не являются Pydantic полями)
+    # Private attributes (not Pydantic fields)
     _solver: Optional[Solver] = PrivateAttr(default=None)
     
     def __init__(self, 
@@ -105,56 +105,56 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
                  context: Optional[Dict],
                  include_explanation: bool = False):
         """
-        Инициализация Prolog цепи.
+        Initialize the Prolog chain.
         
         Args:
-            program: Программа на Prolog
-            context: внешний контекст - окружение, к котрому могут обращаться предикаты
-                     словарь вида {"object_name":python_object}
-            include_explanation: Включать ли объяснения
+            program: Prolog program
+            context: external context — the environment that predicates
+                     may access; a dict of the form {"object_name": python_object}
+            include_explanation: Whether to include explanations
         """
         super().__init__(
             program=program,
             include_explanation=include_explanation
         )
         
-        # Инициализируем решатель
+        # Initialize the solver
         self._solver = Solver(program,context=context)
     
     def _format_solution_for_output(self, solution_data) -> str:
-        """Форматирование решения для вывода в output"""
+        """Format the solution for output"""
         if solution_data is True:
-            return "Запрос успешно выполнен"
+            return "Query executed successfully"
         elif solution_data is False:
-            return "Нет решений"
+            return "No solutions"
         elif isinstance(solution_data, dict):
-            # Словарь с одним решением
+            # Dict with a single solution
             items = []
             for var_name, value in solution_data.items():
-                # Форматируем значение
+                # Format the value
                 val_str = self._format_prolog_term(value)
                 items.append(f"{var_name} = {val_str}")
             
             if len(items) == 1:
-                return f"Решение: {items[0]}"
+                return f"Solution: {items[0]}"
             else:
-                return f"Решения: {', '.join(items)}"
+                return f"Solutions: {', '.join(items)}"
         elif isinstance(solution_data, list):
-            # Список нескольких решений
+            # List of multiple solutions
             results = []
             for i, solution in enumerate(solution_data, 1):
                 items = []
                 for var_name, value in solution.items():
                     val_str = self._format_prolog_term(value)
                     items.append(f"{var_name} = {val_str}")
-                results.append(f"Решение {i}: {', '.join(items)}")
+                results.append(f"Solution {i}: {', '.join(items)}")
             return "\n".join(results)
         else:
             return str(solution_data)
     
     def _format_prolog_term(self, term) -> str:
-        """Форматирование Prolog-терма в строку"""
-        # Импортируем здесь, чтобы избежать циклического импорта
+        """Format a Prolog term into a string"""
+        # Import here to avoid a circular import
         try:
             from prolog.terms import Term, Variable, Number
             
@@ -171,26 +171,26 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
         except ImportError:
             pass
         
-        # Если не смогли импортировать, используем строковое представление
+        # If the import failed, use the string representation
         return str(term)
     
     def invoke(self, 
                input: Dict[str, Any],
                config: Optional[Dict[str, Any]] = None,
                **kwargs: Any) -> Dict[str, Any]:
-        """Выполнение Prolog-запроса"""
+        """Execute the Prolog query"""
         
-        # Получаем запрос
+        # Get the query
         query = input.get("query", "")
         if not query:
-            # Если query нет, попробуем использовать весь input как query
-            # (например, если передали строку напрямую)
+            # If there is no query, try to use the whole input as the query
+            # (e.g., if a string was passed directly)
             if isinstance(input, str):
                 query = input
             else:
-                raise ValueError("Входные данные должны содержать 'query' или быть строкой")
+                raise ValueError("Input must contain 'query' or be a string")
         
-        # Выполняем запрос
+        # Execute the query
         try:
             if self.include_explanation:
                 solutions, explanation = self._solver.find_solutions(
@@ -201,15 +201,15 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
                 solutions = self._solver.find_solutions(query, with_explanation=False)
                 explanation = None
             
-            # Форматируем результат
+            # Format the result
             parsed_result = ParseSolution(query, solutions, explanation)
             
-            # Создаем output, если он пустой
+            # Create output if it is empty
             output = parsed_result.get("output", "")
             if not output and "solution" in parsed_result:
                 output = self._format_solution_for_output(parsed_result["solution"])
             
-            # Структура результата
+            # Result structure
             result = {
                 "success": True,
                 "query": query,
@@ -219,7 +219,7 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
                 "count": parsed_result.get("count", 0)
             }
             
-            # Добавляем solution в зависимости от типа
+            # Add solution depending on its type
             solution = parsed_result.get("solution")
             if solution is not None:
                 if isinstance(solution, dict) or isinstance(solution, list):
@@ -230,7 +230,7 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
             return result
             
         except Exception as e:
-            print(f"Ошибка выполнения Prolog-запроса: {e}")
+            print(f"Error executing the Prolog query: {e}")
             return {
                 "success": False,
                 "query": query,
@@ -240,33 +240,33 @@ class PrologChain(RunnableSerializable[Dict[str, Any], Dict[str, Any]]):
 
 
 class PrologOutputFormatter(RunnableSerializable):
-    """Форматирование вывода Prolog для LLM"""
+    """Formatting Prolog output for an LLM"""
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
-    include_query: bool = Field(default=True, description="Включать запрос в вывод")
-    include_stats: bool = Field(default=True, description="Включать статистику")
+    include_query: bool = Field(default=True, description="Include the query in the output")
+    include_stats: bool = Field(default=True, description="Include statistics")
     
     def invoke(self, 
                input: Dict[str, Any],
                config: Optional[Dict[str, Any]] = None,
                **kwargs: Any) -> str:
-        """Форматирование результата Prolog в строку"""
+        """Format the Prolog result into a string"""
         
         if not isinstance(input, dict):
             return str(input)
         
         if not input.get("success", False):
-            return f"Ошибка Prolog: {input.get('error', 'Неизвестная ошибка')}"
+            return f"Prolog error: {input.get('error', 'Unknown error')}"
         
-        result_str = "Результат Prolog-запроса:\n"
+        result_str = "Prolog query result:\n"
         
         if self.include_query:
-            result_str += f"Запрос: {input.get('query', 'N/A')}\n"
+            result_str += f"Query: {input.get('query', 'N/A')}\n"
         
         if self.include_stats:
             count = input.get("count", 0)
-            result_str += f"Количество решений: {count}\n"
+            result_str += f"Number of solutions: {count}\n"
         
         output = input.get("output", "")
         if output:
@@ -275,30 +275,30 @@ class PrologOutputFormatter(RunnableSerializable):
         return result_str
 
 
-# Фабричные функции для удобства
+# Factory functions for convenience
 
 def create_prolog_chain(program: str, include_explanation: bool = False) -> PrologChain:
-    """Создание Prolog-цепи"""
+    """Create a Prolog chain"""
     return PrologChain(program=program, include_explanation=include_explanation)
 
 
 def create_prolog_query_template(template: str) -> PrologQueryTemplate:
-    """Создание шаблона Prolog-запроса"""
+    """Create a Prolog query template"""
     return PrologQueryTemplate.from_template(template)
 
 
-# Упрощенный вариант для быстрого создания цепочек
+# Simplified variant for quickly creating chains
 
 def prolog_pipeline(program: str, query_template: Optional[str] = None) -> RunnableSerializable:
     """
-    Создание готовой Prolog-цепи
+    Create a ready Prolog chain
     
     Args:
-        program: Программа на Prolog
-        query_template: Шаблон запроса (опционально)
+        program: Prolog program
+        query_template: Query template (optional)
     
     Returns:
-        Готовая цепь
+        Ready chain
     """
     prolog_chain = PrologChain(program=program)
     
@@ -309,47 +309,47 @@ def prolog_pipeline(program: str, query_template: Optional[str] = None) -> Runna
         return prolog_chain
 
 
-# Пример использования
+# Usage example
 if __name__ == "__main__":
-    # Тест 1: Цепь с шаблоном
-    print("Тест 1: Цепь с шаблоном и оператором |")
+    # Test 1: Chain with a template
+    print("Test 1: Chain with a template and | operator")
     
     program = """
-    родитель(иван, алексей).
-    родитель(алексей, петр).
+    parent(ivan, alexey).
+    parent(alexey, peter).
     """
     
-    # Создание цепи как в примере
-    query_template = PrologQueryTemplate.from_template("родитель({person}, X).")
+    # Creating a chain as in the example
+    query_template = PrologQueryTemplate.from_template("parent({person}, X).")
     prolog = PrologChain(program=program)
     
     chain = query_template | prolog
     
-    result = chain.invoke({"person": "иван"})
-    print(f"Результат: {result}")
+    result = chain.invoke({"person": "ivan"})
+    print(f"Result: {result}")
     print(f"Output: {result.get('output')}")
     print()
     
-    # Тест 2: Альтернативный способ
-    print("Тест 2: Использование prolog_pipeline")
+    # Test 2: Alternative way
+    print("Test 2: Using prolog_pipeline")
     
     chain2 = prolog_pipeline(
         program=program,
-        query_template="родитель({person}, X)."
+        query_template="parent({person}, X)."
     )
     
-    result2 = chain2.invoke({"person": "иван"})
-    print(f"Результат: {result2}")
+    result2 = chain2.invoke({"person": "ivan"})
+    print(f"Result: {result2}")
     print()
     
-    # Тест 3: Цепь без шаблона
-    print("Тест 3: Цепь без шаблона")
+    # Test 3: Chain without a template
+    print("Test 3: Chain without a template")
     
     chain3 = prolog_pipeline(program=program)
-    result3 = chain3.invoke({"query": "родитель(иван, X)."})
-    print(f"Результат: {result3}")
+    result3 = chain3.invoke({"query": "parent(ivan, X)."})
+    print(f"Result: {result3}")
     
-    # Тест 4: Прямой вызов строкой
-    print("\nТест 4: Прямой вызов строкой")
-    result4 = chain3.invoke("родитель(иван, X).")
-    print(f"Результат: {result4}")
+    # Test 4: Direct call with a string
+    print("\nTest 4: Direct call with a string")
+    result4 = chain3.invoke("parent(ivan, X).")
+    print(f"Result: {result4}")
