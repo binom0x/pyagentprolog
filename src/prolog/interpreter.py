@@ -6,19 +6,38 @@ Patch 5.4: if-then-else via _IfThenBarrier without nested _solve.
 Patch 5.5: removed _rename_variables cache (broke TCO).
 Patch 5.6: fixed the constant-index bug (Variable as a key).
 Patch 5.7: removed redundant subst.copy() in the hot path.
-Patch 5.8 (this file): subst pruning on every rule application.
-  Before creating body_frame, _prune_subst_to_goals is called:
-  only bindings for variables reachable from the new goals
-  and from the "anchor" variables (query vars + keys of initial_subst)
-  are kept. Chains v -> w -> x -> 42 are collapsed into v -> 42. This makes
-  subst bounded in size regardless of recursion depth, so
-  subst.copy() inside unify becomes O(1) instead of O(N). Total
-  time of tail and non-tail recursion drops from O(N²) to O(N).
-  alt_frame uses the original frame.subst — pruning does not touch it.
+Patch 5.8: subst pruning on every rule application.
+Patch 5.9: anchor variables in if-then-else.
+Patch 5.10: proper ISO cut.
+  Each call to a user-defined predicate receives a FRESH cut_id; the
+  caller's cut_id is recorded in Frame.cut_barrier. When CutException
+  is caught, everything in the current call's zone is removed
+  (cut_id >= barrier). Frames of calling predicates (cut_id < barrier)
+  are preserved.
+Patch 5.11 (this file): if-then-else commit restoration.
+  PATCH 5.10 broke the if-then-else commit detection, because the
+  "Cond succeeded" check is `frame.cut_id == frame.ifthen_meta.c_id`,
+  and a fresh cut_id for the cond's subgoal made those two ids differ.
+  Fix: if the frame being expanded IS the direct cond frame
+  (ifthen_meta is not None and cut_id == ifthen_meta.c_id), the
+  resulting body_frame keeps cut_id = frame.cut_id (the cond_cut_id)
+  instead of a fresh one. Semantically correct: inside (Cond -> Then ; Else),
+  a `!` in Cond behaves exactly like the `->` — both commit the cond
+  and go to Then. So the cond's cut zone IS cond_cut_id, and any
+  subcalls inside Cond belong to it.
+
+  KNOWN LIMITATION (unchanged by 5.11):
+    p :- q, !, r.
+    p :- fallback.
+  `!` here is syntactically in p, but executed inside q's body_frame
+  (body_goals + rest_goals are merged into a single goals list).
+  cut_id belongs to q, so p's alternative clause is NOT removed.
+  Workaround: ( q -> true ; fail ), or if-then-else.
+  Full fix requires separating body_goals from rest_goals in Frame.
 
 (c) 2026 Andrey Vorfolomeev
 
-version 1.0.1
+version 1.0.3 (if-then-else commit + proper ISO cut)
 """
 
 from typing import Generator, Dict, List, Optional, Tuple, Any, Iterator
@@ -52,12 +71,25 @@ class _IfThenBarrier:
 
 
 class Frame:
-    """Stack frame for iterative search."""
+    """Stack frame for iterative search.
+
+    cut_id
+        Identity of the "call zone". Each call to a user-defined predicate
+        creates a fresh cut_id (except the direct cond frame of an
+        if-then-else — see PATCH 5.11). `!` pops all frames whose
+        cut_id >= the current zone.
+
+    cut_barrier
+        The caller's cut_id at the moment of this frame's creation.
+        Diagnostic only; not consulted by the cut handler.
+    """
     __slots__ = ('goals', 'subst', 'depth', 'rule_index', 'total_rules',
-                 'tail', 'trace_step', 'cut_id', 'disj_step', 'ifthen_meta')
+                 'tail', 'trace_step', 'cut_id', 'disj_step', 'ifthen_meta',
+                 'cut_barrier')
 
     def __init__(self, goals, subst, depth, rule_index, total_rules, tail,
-                 trace_step, cut_id=None, disj_step=None, ifthen_meta=None):
+                 trace_step, cut_id=None, disj_step=None, ifthen_meta=None,
+                 cut_barrier=None):
         self.goals = goals
         self.subst = subst
         self.depth = depth
@@ -68,6 +100,7 @@ class Frame:
         self.cut_id = cut_id
         self.disj_step = disj_step
         self.ifthen_meta = ifthen_meta
+        self.cut_barrier = cut_barrier
 
 
 class BuiltinRegistry:
@@ -146,10 +179,6 @@ class Database:
         self._rename_nonce = 0
         self.build_rule_index()
 
-    # ------------------------------------------------------------------
-    # Constant index of rules by the first argument.
-    # Patch 5.6: Variable is a subclass of Term but is NOT a constant.
-    # ------------------------------------------------------------------
     @staticmethod
     def _is_const_first_arg(term):
         if isinstance(term, Variable):
@@ -228,25 +257,10 @@ class Database:
                 frame.disj_step.success = True
                 self.tracer.end_goal(True)
 
-    # ------------------------------------------------------------------
-    # PATCH 5.8: pruning subst to relevant variables.
-    # ------------------------------------------------------------------
     def _prune_subst_to_goals(self, subst, goals, keep_vars):
-        """Returns a new dict with bindings for variables reachable
-        from `goals` or from `keep_vars`, with chains resolved.
-
-        A chain `v -> w -> x -> 42` in the original subst, if v is reachable,
-        becomes `v -> 42` in the result. Intermediate w, x are not
-        kept unless they are reachable from the seed themselves.
-
-        Guarantee: any variable occurring in `goals`, as well as
-        every variable from `keep_vars`, gets its (resolved)
-        binding if it was in the original subst.
-        """
         if not subst:
             return {}
 
-        # 1) Seed = all Variables from goals + keep_vars.
         seed = set()
         stack = list(goals)
         while stack:
@@ -260,7 +274,6 @@ class Database:
             if isinstance(v, Variable) and v.name != "_":
                 seed.add(v)
 
-        # 2) Closure with chain resolution and cycle protection.
         pruned = {}
         work = list(seed)
         while work:
@@ -270,17 +283,13 @@ class Database:
             if v not in subst:
                 continue
             val = subst[v]
-            # Resolve the chain v -> w -> ... -> final.
             chain_seen = {v}
             while isinstance(val, Variable) and val in subst:
                 if val in chain_seen:
-                    # Cycle v -> ... -> v: break to avoid looping.
                     break
                 chain_seen.add(val)
                 val = subst[val]
             pruned[v] = val
-            # Process variables inside val (if val is a Term or
-            # remains a Variable without a binding).
             inner = [val]
             while inner:
                 t = inner.pop()
@@ -291,17 +300,10 @@ class Database:
                     inner.extend(t.arguments)
         return pruned
 
-    # ------------------------------------------------------------------
-    # Main iterative solver
-    # ------------------------------------------------------------------
     def _solve_iterative(self, initial_goal: Term, initial_subst: Dict, depth: int, with_trace: bool):
         debug_print(f"\n=== Beginning search for goal: {initial_goal} "
                     f"with substitution {initial_subst}, depth {depth} ===")
 
-        # --- Patch 5.8: anchor variables for pruning ---
-        # These are variables that must be preserved in subst at any
-        # moment, because the caller expects them in the yields.
-        # = all Variables from initial_goal + all keys of initial_subst.
         _qv_seed = set()
         _qv_stack = [initial_goal]
         while _qv_stack:
@@ -339,9 +341,6 @@ class Database:
             debug_print(f"  subst: {frame.subst}")
             debug_print(f"  rule_index: {frame.rule_index}, total_rules: {frame.total_rules}")
 
-            # ------------------------------------------------------------------
-            # All goals solved
-            # ------------------------------------------------------------------
             if not frame.goals:
                 if (frame.ifthen_meta is not None
                         and frame.cut_id == frame.ifthen_meta.c_id):
@@ -374,6 +373,7 @@ class Database:
                         barrier.parent_cut_id,
                         None,
                         barrier.parent_ifthen_meta,
+                        cut_barrier=barrier.parent_cut_id,
                     )
                     stack.append(new_frame)
                     continue
@@ -418,17 +418,16 @@ class Database:
                         builtin_step.success = True
                         self.tracer.end_goal(True)
                     self._close_successful_steps(stack, with_trace)
-                    if len(stack) >= 2:
-                        parent = stack[-2]
-                        parent.rule_index = parent.total_rules
-                    current_cut_id = frame.cut_id
-                    if current_cut_id is not None:
-                        new_stack = []
-                        for i, f in enumerate(stack):
-                            if i == len(stack) - 1 or f.cut_id != current_cut_id:
-                                new_stack.append(f)
+
+                    # ★ PATCH 5.10: proper ISO cut.
+                    barrier = frame.cut_id
+                    if barrier is not None:
+                        new_stack = [
+                            f for f in stack
+                            if f is frame or f.cut_id is None or f.cut_id < barrier
+                        ]
                         stack[:] = new_stack
-                        frame = stack[-1]
+
                     frame.goals = rest_goals
                     frame.subst = e.subst
                     continue
@@ -438,11 +437,11 @@ class Database:
                     continue_frame = Frame(rest_goals, e.subst, frame.depth,
                                            0, 0, frame.tail, None,
                                            frame.cut_id, frame.disj_step,
-                                           frame.ifthen_meta)
+                                           frame.ifthen_meta, frame.cut_barrier)
                     repeat_frame = Frame([current_goal] + rest_goals, e.subst,
                                          frame.depth, 0, 0, frame.tail, None,
                                          frame.cut_id, frame.disj_step,
-                                         frame.ifthen_meta)
+                                         frame.ifthen_meta, frame.cut_barrier)
                     stack.append(repeat_frame)
                     stack.append(continue_frame)
                     if with_trace and builtin_step:
@@ -466,7 +465,8 @@ class Database:
                             alt_frame = Frame(rest_goals, extra_subst,
                                               frame.depth, 0, 0, frame.tail,
                                               None, frame.cut_id,
-                                              frame.disj_step, frame.ifthen_meta)
+                                              frame.disj_step, frame.ifthen_meta,
+                                              frame.cut_barrier)
                             stack.append(alt_frame)
                         frame.goals = rest_goals
                         frame.subst = first_subst
@@ -499,17 +499,15 @@ class Database:
                             builtin_step.success = True
                             self.tracer.end_goal(True)
                         self._close_successful_steps(stack, with_trace)
-                        if len(stack) >= 2:
-                            parent = stack[-2]
-                            parent.rule_index = parent.total_rules
-                        current_cut_id = frame.cut_id
-                        if current_cut_id is not None:
-                            new_stack = []
-                            for i, f in enumerate(stack):
-                                if i == len(stack) - 1 or f.cut_id != current_cut_id:
-                                    new_stack.append(f)
+
+                        barrier = frame.cut_id
+                        if barrier is not None:
+                            new_stack = [
+                                f for f in stack
+                                if f is frame or f.cut_id is None or f.cut_id < barrier
+                            ]
                             stack[:] = new_stack
-                            frame = stack[-1]
+
                         frame.goals = rest_goals
                         frame.subst = e.subst
                         continue
@@ -519,11 +517,11 @@ class Database:
                         continue_frame = Frame(rest_goals, e.subst, frame.depth,
                                                0, 0, frame.tail, None,
                                                frame.cut_id, frame.disj_step,
-                                               frame.ifthen_meta)
+                                               frame.ifthen_meta, frame.cut_barrier)
                         repeat_frame = Frame([current_goal] + rest_goals, e.subst,
                                              frame.depth, 0, 0, frame.tail,
                                              None, frame.cut_id, frame.disj_step,
-                                             frame.ifthen_meta)
+                                             frame.ifthen_meta, frame.cut_barrier)
                         stack.append(repeat_frame)
                         stack.append(continue_frame)
                         if with_trace and builtin_step:
@@ -559,7 +557,7 @@ class Database:
                         alt_frame = Frame(rest_goals, extra_subst, frame.depth,
                                           0, 0, frame.tail, None,
                                           frame.cut_id, frame.disj_step,
-                                          frame.ifthen_meta)
+                                          frame.ifthen_meta, frame.cut_barrier)
                         stack.append(alt_frame)
                     stack.append(frame)
                     if with_trace and builtin_step:
@@ -600,6 +598,7 @@ class Database:
                         frame.cut_id,
                         frame.disj_step,
                         frame.ifthen_meta,
+                        cut_barrier=frame.cut_barrier,
                     )
 
                     barrier = _IfThenBarrier(
@@ -622,6 +621,7 @@ class Database:
                         cond_cut_id,
                         frame.disj_step,
                         barrier,
+                        cut_barrier=frame.cut_id,
                     )
 
                     stack.pop()
@@ -641,10 +641,12 @@ class Database:
 
                 left_frame = Frame([left] + rest_goals, frame.subst,
                                    frame.depth, 0, 0, frame.tail, None,
-                                   frame.cut_id, disj_step, frame.ifthen_meta)
+                                   frame.cut_id, disj_step, frame.ifthen_meta,
+                                   frame.cut_barrier)
                 right_frame = Frame([right] + rest_goals, frame.subst,
                                     frame.depth, 0, 0, frame.tail, None,
-                                    frame.cut_id, disj_step, frame.ifthen_meta)
+                                    frame.cut_id, disj_step, frame.ifthen_meta,
+                                    frame.cut_barrier)
 
                 stack.pop()
                 stack.append(right_frame)
@@ -671,6 +673,7 @@ class Database:
                     frame.cut_id,
                     frame.disj_step,
                     frame.ifthen_meta,
+                    cut_barrier=frame.cut_barrier,
                 )
 
                 barrier = _IfThenBarrier(
@@ -693,6 +696,7 @@ class Database:
                     cond_cut_id,
                     frame.disj_step,
                     barrier,
+                    cut_barrier=frame.cut_id,
                 )
 
                 stack.pop()
@@ -760,34 +764,11 @@ class Database:
                 new_depth = frame.depth + 1
                 debug_print("    Non-tail call, depth increased")
 
-            # --- Patch 5.8: subst pruning ---
-            # new_subst contains all accumulated bindings, but for the new
-            # frame only those reachable from new_goals plus anchor
-            # query_vars are needed. Everything else is dead weight from
-            # previous recursion iterations. Without this pruning, subst grows
-            # linearly with depth, and unify copies it at each step —
-            # yielding O(N²).
-            #
-            # alt_frame (if there are alternative rules) will receive
-            # the original frame.subst, not the pruned one — that is fine,
-            # because alt_frame executes a different set of rules and
-            # requires the full context of its level.
-            
-            #pruned_subst = self._prune_subst_to_goals(new_subst, new_goals, query_vars)
-
-            # Patch 5.9: if we are inside a Cond if-then-else, the variables
-            # bound in Cond may be used in the Then/Else branches.
-            # These branches are not visible from the Cond body, so they
-            # must be explicitly added to the seed for pruning. Otherwise
-            # ObsX/ObsY (and similar) lose their binding, and the Then branch
-            # cannot dereference them — which led to "decide_move -> None"
-            # in the presence of an obstacle.
             extra_goals = []
             fm = frame.ifthen_meta
             if fm is not None and frame.cut_id == fm.c_id:
                 extra_goals.append(fm.then_goal)
                 extra_goals.extend(fm.else_frame.goals)
-                # In case of nested if-then-else — walk up the chain.
                 while fm.parent_ifthen_meta is not None:
                     fm = fm.parent_ifthen_meta
                     extra_goals.append(fm.then_goal)
@@ -798,12 +779,35 @@ class Database:
                 extra_goals + [current_goal] + new_goals,
                 query_vars,
             )
-            
+
             debug_print(f"    subst pruned: {len(new_subst)} -> {len(pruned_subst)} entries")
 
+            # ★ PATCH 5.10: fresh cut_id per call, so `!` from inside
+            # the predicate does not truncate choice points of callers
+            # (this fixed `format_answer`'s cut inside findall in main/1).
+            #
+            # ★ PATCH 5.11: if the current frame is the DIRECT cond frame
+            # of an if-then-else, keep its cut_id. Otherwise the "Cond
+            # succeeded → commit to Then" check `frame.cut_id ==
+            # frame.ifthen_meta.c_id` fails, and the interpreter falls
+            # through to "yield solution" instead of committing.
+            # Semantically: inside (Cond -> Then ; Else), a `!` in Cond
+            # behaves exactly like `->` — both commit the cond. So the
+            # cond's cut zone IS cond_cut_id, and subcalls of Cond are
+            # legitimately in it.
+            if (frame.ifthen_meta is not None
+                    and frame.cut_id == frame.ifthen_meta.c_id):
+                caller_cut_id = frame.cut_barrier
+                fresh_cut_id = frame.cut_id
+            else:
+                caller_cut_id = frame.cut_id
+                fresh_cut_id = self._cut_counter
+                self._cut_counter += 1
+
             body_frame = Frame(new_goals, pruned_subst, new_depth, 0, 0,
-                               frame.tail, trace_step, frame.cut_id,
-                               frame.disj_step, frame.ifthen_meta)
+                               frame.tail, trace_step, fresh_cut_id,
+                               frame.disj_step, frame.ifthen_meta,
+                               cut_barrier=caller_cut_id)
 
             stack.pop()
 
@@ -811,13 +815,13 @@ class Database:
                 debug_print(f"    There are alternative rules")
                 alt_frame = Frame(frame.goals, frame.subst, frame.depth,
                                   frame.rule_index + 1, len(rules),
-                                  frame.tail, None, frame.cut_id,
-                                  frame.disj_step, frame.ifthen_meta)
+                                  frame.tail, None, fresh_cut_id,
+                                  frame.disj_step, frame.ifthen_meta,
+                                  cut_barrier=caller_cut_id)
                 stack.append(alt_frame)
 
             stack.append(body_frame)
 
-        # End of while — stack is empty
         if with_trace:
             for disj_step in pending_disj_steps:
                 if not disj_step.success:
@@ -926,8 +930,8 @@ class Database:
                 if term not in var_map:
                     var_map[term] = Variable(f"{term.name}_{nonce}")
                 return var_map[term]
-            if isinstance(term, Number):          # <-- BEFORE Term
-                return term                        # Number is unchanged
+            if isinstance(term, Number):
+                return term
             if isinstance(term, Term):
                 new_args = [rename(arg) for arg in term.arguments]
                 return Term(term.functor, new_args)

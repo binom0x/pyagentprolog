@@ -7,7 +7,7 @@ A Prolog engine in Python with proof tracing, agents based on Python actions, an
 
 ## Author
 
-Andrey Vorfolomeev (Andrey Viktorovich Vorfolomeev)
+Andrey Vorfolomeev
 
 ## Features
 
