@@ -37,7 +37,7 @@ Patch 5.11 (this file): if-then-else commit restoration.
 
 (c) 2026 Andrey Vorfolomeev
 
-version 1.0.3 (if-then-else commit + proper ISO cut)
+version 1.0.1
 """
 
 from typing import Generator, Dict, List, Optional, Tuple, Any, Iterator
@@ -740,6 +740,7 @@ class Database:
             if with_trace:
                 goal_str = str(current_goal.substitute(frame.subst))
                 trace_step = self.tracer.start_goal(goal_str, frame.depth)
+                self.tracer.set_substitutions(frame.subst, new_subst) # patch fo IDE subst_before/after
                 for var, val in self._extract_unifications(current_goal,
                                                             renamed_rule.head,
                                                             new_subst):
