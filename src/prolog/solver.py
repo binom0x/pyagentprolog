@@ -81,6 +81,12 @@ class Solver(object):
                 matching_query_terms, self.last_tracer = self.database.query_with_explanation(query)
             else:
                 matching_query_terms = list(self.database.query(query))
+                
+                #################### DEBUG ####################
+                #print(f"[find_solutions] {query_text!r} → {len(matching_query_terms)} raw")
+                #for i, t in enumerate(matching_query_terms):
+                #    print(f"  [{i}] {t}")                
+                ###############################################
         except PrologError as e:
             return {"error": str(e), "type": e.error_type, "detail": e.detail}
 
@@ -191,7 +197,8 @@ def ParseSolution(query, solution, explanation=None):
                     out_parts = []
                     for var_name, value in sol_dict.items():
                         if not is_unbound(var_name, value):
-                            val_str = term_to_string(value) if isinstance(value, Term) else str(value)
+                            val_str = (term_to_string(value)
+                                       if isinstance(value, Term) else str(value))
                             bound_dict[var_name] = val_str
                             out_parts.append(f"{var_name} = {val_str}")
                     if not bound_dict:
@@ -202,11 +209,20 @@ def ParseSolution(query, solution, explanation=None):
                 else:
                     solutions_list.append(sol_dict)
                     outputs.append(str(sol_dict))
-            if all(s is None for s in solutions_list):
+
+            if not solutions_list:
+                result["solution"] = None
+                result["output"] = "No solution"
+            elif all(s is None for s in solutions_list):
                 result["solution"] = True
                 result["output"] = "True"
             else:
-                solutions_list = [s for s in solutions_list if s is not None]
+                # Параллельная фильтрация: убираем None из solutions_list
+                # и соответствующие 'true' из outputs
+                pairs = [(s, o) for s, o in zip(solutions_list, outputs)
+                         if s is not None]
+                solutions_list = [s for s, _ in pairs]
+                outputs = [o for _, o in pairs]
                 result["solution"] = solutions_list
                 result["output"] = outputs if len(outputs) > 1 else outputs[0]
                 result["count"] = len(solutions_list)
