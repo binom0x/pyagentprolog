@@ -25,6 +25,7 @@ tests/example_proagent.py
 tests/example_proagent_gradio.py
 tests/example_proagent_streaming.py
 tests/example_world_model_proagent.py
-tests/interpreter-v5_full_test.py
+tests/interpreter-full_test.py
 tests/prolog_benchmark.py
 tests/prolog_semantic_demo.py
+tests/test_compound.py
